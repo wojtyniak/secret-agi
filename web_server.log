@@ -1,0 +1,24 @@
+INFO:     Started server process [15103]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+🚀 Starting Secret AGI Web Game Viewer...
+==================================================
+
+This will:
+  1. Start the FastAPI backend on http://localhost:8000
+  2. Open the game viewer in your browser
+  3. Allow you to start and monitor games
+
+Press Ctrl+C to stop the server
+
+🌐 Starting web server...
+🔗 Opening browser at http://localhost:8000
+INFO:     127.0.0.1:54469 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54469 - "GET /game-state HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54481 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54483 - "GET /game-log HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [15103]

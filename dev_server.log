@@ -1,0 +1,35 @@
+🚀 Starting Secret AGI development server with auto-reload...
+🌐 Web interface: http://localhost:8000
+📝 Auto-reloads on source code changes
+⏹️  Press Ctrl+C to stop
+
+uv run uvicorn secret_agi.api.simple_api:app --host 0.0.0.0 --port 8000 --reload --reload-dir secret_agi --log-level info
+INFO:     Will watch for changes in these directories: ['/Users/ww/Programming/python/secret-agi/secret_agi']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [17098] using WatchFiles
+INFO:     Started server process [17103]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:54684 - "GET / HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'secret_agi/api/simple_api.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [17103]
+INFO:     Started server process [17250]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:54721 - "GET /health HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'secret_agi/api/simple_api.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [17250]
+INFO:     Started server process [17542]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [17542]
+INFO:     Stopping reloader process [17098]
