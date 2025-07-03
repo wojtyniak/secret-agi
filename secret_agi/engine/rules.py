@@ -1,6 +1,5 @@
 """Game rules and win condition checking for Secret AGI."""
 
-from typing import List, Optional, Tuple
 
 from .models import EventType, GameState, Phase, Player, Role
 
@@ -9,7 +8,7 @@ class GameRules:
     """Handles game rules validation and win condition checking."""
 
     @staticmethod
-    def check_win_conditions(state: GameState) -> Tuple[bool, List[Role]]:
+    def check_win_conditions(state: GameState) -> tuple[bool, list[Role]]:
         """
         Check all win conditions and return (game_over, winners).
 
@@ -65,7 +64,7 @@ class GameRules:
         return False, []
 
     @staticmethod
-    def _find_agi_player(state: GameState) -> Optional[Player]:
+    def _find_agi_player(state: GameState) -> Player | None:
         """Find the AGI player."""
         for player in state.players:
             if player.role == Role.AGI:
@@ -78,7 +77,7 @@ class GameRules:
         return state.capability - state.safety in [4, 5]
 
     @staticmethod
-    def get_eligible_engineers(state: GameState) -> List[str]:
+    def get_eligible_engineers(state: GameState) -> list[str]:
         """Get list of eligible engineers (excluding last engineer if applicable)."""
         eligible = []
         for player in state.alive_players:
@@ -89,7 +88,7 @@ class GameRules:
     @staticmethod
     def check_powers_triggered(
         old_capability: int, new_capability: int, player_count: int
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Check which powers are triggered by capability increase.
         Returns list of capability thresholds that were crossed.
@@ -118,7 +117,9 @@ class GameRules:
         """Check if all alive players have voted on the team."""
         alive_player_ids = {p.id for p in state.alive_players}
         # Only count votes from alive players
-        alive_voted_player_ids = {pid for pid in state.team_votes.keys() if pid in alive_player_ids}
+        alive_voted_player_ids = {
+            pid for pid in state.team_votes.keys() if pid in alive_player_ids
+        }
         return alive_player_ids == alive_voted_player_ids
 
     @staticmethod
@@ -126,7 +127,9 @@ class GameRules:
         """Check if all alive players have voted on emergency safety."""
         alive_player_ids = {p.id for p in state.alive_players}
         # Only count votes from alive players
-        alive_voted_player_ids = {pid for pid in state.emergency_votes.keys() if pid in alive_player_ids}
+        alive_voted_player_ids = {
+            pid for pid in state.emergency_votes.keys() if pid in alive_player_ids
+        }
         return alive_player_ids == alive_voted_player_ids
 
     @staticmethod
@@ -137,8 +140,12 @@ class GameRules:
 
         alive_player_ids = {p.id for p in state.alive_players}
         # Only count votes from alive players
-        alive_votes = {pid: vote for pid, vote in state.team_votes.items() if pid in alive_player_ids}
-        
+        alive_votes = {
+            pid: vote
+            for pid, vote in state.team_votes.items()
+            if pid in alive_player_ids
+        }
+
         yes_votes = sum(1 for vote in alive_votes.values() if vote)
         total_votes = len(alive_votes)
 
@@ -152,31 +159,35 @@ class GameRules:
 
         alive_player_ids = {p.id for p in state.alive_players}
         # Only count votes from alive players
-        alive_votes = {pid: vote for pid, vote in state.emergency_votes.items() if pid in alive_player_ids}
-        
+        alive_votes = {
+            pid: vote
+            for pid, vote in state.emergency_votes.items()
+            if pid in alive_player_ids
+        }
+
         yes_votes = sum(1 for vote in alive_votes.values() if vote)
         total_votes = len(alive_votes)
 
         return yes_votes > total_votes // 2
 
     @staticmethod
-    def reset_engineer_eligibility(state: GameState):
+    def reset_engineer_eligibility(state: GameState) -> None:
         """Reset all players' wasLastEngineer flag to False."""
         for player in state.players:
             player.was_last_engineer = False
 
     @staticmethod
-    def advance_director(state: GameState):
+    def advance_director(state: GameState) -> None:
         """Advance to the next director in clockwise order."""
         state.current_director_index = state.get_next_director_index()
 
     @staticmethod
-    def reset_failed_proposals(state: GameState):
+    def reset_failed_proposals(state: GameState) -> None:
         """Reset the failed proposals counter to 0."""
         state.failed_proposals = 0
 
     @staticmethod
-    def increment_failed_proposals(state: GameState):
+    def increment_failed_proposals(state: GameState) -> None:
         """Increment the failed proposals counter."""
         state.failed_proposals += 1
 
@@ -186,7 +197,7 @@ class GameRules:
         return state.failed_proposals >= 3
 
     @staticmethod
-    def auto_publish_paper(state: GameState):
+    def auto_publish_paper(state: GameState) -> None:
         """Auto-publish the top paper from deck and reset state."""
         if len(state.deck) == 0:
             return  # No papers to publish
@@ -223,7 +234,7 @@ class GameRules:
         )
 
     @staticmethod
-    def publish_paper(state: GameState, paper_id: str, engineer_id: str):
+    def publish_paper(state: GameState, paper_id: str, engineer_id: str) -> None:
         """Publish a paper and update game state."""
         # Find the paper
         paper = None
@@ -288,7 +299,7 @@ class GameRules:
             GameRules._trigger_power(state, power_level)
 
     @staticmethod
-    def _trigger_power(state: GameState, power_level: int):
+    def _trigger_power(state: GameState, power_level: int) -> None:
         """Trigger a power based on capability level."""
         if power_level == 10:
             # AGI must reveal identity when asked
@@ -320,7 +331,7 @@ class GameRules:
             )
 
     @staticmethod
-    def eliminate_player(state: GameState, player_id: str):
+    def eliminate_player(state: GameState, player_id: str) -> None:
         """Eliminate a player (C=11 power)."""
         player = state.get_player_by_id(player_id)
         if player:
@@ -336,7 +347,7 @@ class GameRules:
             )
 
     @staticmethod
-    def view_allegiance(state: GameState, viewer_id: str, target_id: str):
+    def view_allegiance(state: GameState, viewer_id: str, target_id: str) -> None:
         """Record an allegiance viewing (C=3,6 powers)."""
         target_player = state.get_player_by_id(target_id)
         if not target_player:
@@ -358,7 +369,7 @@ class GameRules:
         )
 
     @staticmethod
-    def set_next_director(state: GameState, chosen_director_id: str):
+    def set_next_director(state: GameState, chosen_director_id: str) -> None:
         """Set the next director (C=9 power)."""
         for i, player in enumerate(state.players):
             if player.id == chosen_director_id and player.alive:

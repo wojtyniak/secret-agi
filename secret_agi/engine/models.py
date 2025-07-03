@@ -3,7 +3,6 @@
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
 
 
 class Role(Enum):
@@ -66,7 +65,7 @@ class Paper:
     capability: int
     safety: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate paper values."""
         if self.capability < 0 or self.safety < 0:
             raise ValueError("Paper values must be non-negative")
@@ -82,7 +81,7 @@ class Player:
     alive: bool = True
     was_last_engineer: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Set allegiance based on role if not explicitly set."""
         if self.role == Role.SAFETY:
             self.allegiance = Allegiance.SAFETY
@@ -96,16 +95,16 @@ class GameEvent:
 
     id: str
     type: EventType
-    player_id: Optional[str]
-    data: Dict
+    player_id: str | None
+    data: dict
     turn_number: int
 
     @classmethod
     def create(
         cls,
         event_type: EventType,
-        player_id: Optional[str] = None,
-        data: Optional[Dict] = None,
+        player_id: str | None = None,
+        data: dict | None = None,
         turn_number: int = 0,
     ) -> "GameEvent":
         """Create a new game event."""
@@ -128,15 +127,15 @@ class GameState:
     round_number: int = 1
 
     # Players
-    players: List[Player] = field(default_factory=list)
+    players: list[Player] = field(default_factory=list)
 
     # Board state
     capability: int = 0
     safety: int = 0
 
     # Card management
-    deck: List[Paper] = field(default_factory=list)
-    discard: List[Paper] = field(default_factory=list)
+    deck: list[Paper] = field(default_factory=list)
+    discard: list[Paper] = field(default_factory=list)
 
     # Turn management
     current_director_index: int = 0
@@ -146,13 +145,13 @@ class GameState:
     current_phase: Phase = Phase.TEAM_PROPOSAL
 
     # Phase-specific state
-    nominated_engineer_id: Optional[str] = None
-    director_cards: Optional[List[Paper]] = None
-    engineer_cards: Optional[List[Paper]] = None
+    nominated_engineer_id: str | None = None
+    director_cards: list[Paper] | None = None
+    engineer_cards: list[Paper] | None = None
 
     # Voting state
-    team_votes: Dict[str, bool] = field(default_factory=dict)
-    emergency_votes: Dict[str, bool] = field(default_factory=dict)
+    team_votes: dict[str, bool] = field(default_factory=dict)
+    emergency_votes: dict[str, bool] = field(default_factory=dict)
     emergency_safety_called: bool = False
 
     # Game effects
@@ -161,14 +160,14 @@ class GameState:
     agi_must_reveal: bool = False
 
     # Power tracking
-    viewed_allegiances: Dict[str, Dict[str, Allegiance]] = field(default_factory=dict)
+    viewed_allegiances: dict[str, dict[str, Allegiance]] = field(default_factory=dict)
 
     # Game status
     is_game_over: bool = False
-    winners: List[Role] = field(default_factory=list)
+    winners: list[Role] = field(default_factory=list)
 
     # Events
-    events: List[GameEvent] = field(default_factory=list)
+    events: list[GameEvent] = field(default_factory=list)
 
     @property
     def current_director(self) -> Player:
@@ -176,7 +175,7 @@ class GameState:
         return self.players[self.current_director_index]
 
     @property
-    def alive_players(self) -> List[Player]:
+    def alive_players(self) -> list[Player]:
         """Get all alive players."""
         return [p for p in self.players if p.alive]
 
@@ -185,7 +184,7 @@ class GameState:
         """Get count of alive players."""
         return len(self.alive_players)
 
-    def get_player_by_id(self, player_id: str) -> Optional[Player]:
+    def get_player_by_id(self, player_id: str) -> Player | None:
         """Get player by ID."""
         for player in self.players:
             if player.id == player_id:
@@ -202,9 +201,9 @@ class GameState:
     def add_event(
         self,
         event_type: EventType,
-        player_id: Optional[str] = None,
-        data: Optional[Dict] = None,
-    ):
+        player_id: str | None = None,
+        data: dict | None = None,
+    ) -> None:
         """Add an event to the game state."""
         event = GameEvent.create(event_type, player_id, data, self.turn_number)
         self.events.append(event)
@@ -215,10 +214,10 @@ class GameConfig:
     """Configuration for creating a new game."""
 
     player_count: int
-    player_ids: List[str]
-    seed: Optional[int] = None
+    player_ids: list[str]
+    seed: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration."""
         if self.player_count < 5 or self.player_count > 10:
             raise ValueError("Player count must be between 5 and 10")
@@ -231,53 +230,53 @@ class GameUpdate:
     """Response structure for player actions."""
 
     success: bool
-    error: Optional[str] = None
-    events: List[GameEvent] = field(default_factory=list)
-    game_state: Optional[GameState] = None
-    valid_actions: List[ActionType] = field(default_factory=list)
-    chat_messages: List[GameEvent] = field(default_factory=list)
+    error: str | None = None
+    events: list[GameEvent] = field(default_factory=list)
+    game_state: GameState | None = None
+    valid_actions: list[ActionType] = field(default_factory=list)
+    chat_messages: list[GameEvent] = field(default_factory=list)
 
 
-def create_standard_deck() -> List[Paper]:
+def create_standard_deck() -> list[Paper]:
     """Create the standard 17-card deck as specified in the rules."""
-    papers = []
+    papers: list[Paper] = []
 
     # 3x [C:0, S:2] - Pure safety research
-    for i in range(3):
+    for _i in range(3):
         papers.append(Paper(f"paper_{len(papers)}", 0, 2))
 
     # 2x [C:1, S:2] - Capability with strong safety
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 1, 2))
 
     # 2x [C:1, S:3] - Breakthrough safety research
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 1, 3))
 
     # 2x [C:1, S:1] - Balanced research
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 1, 1))
 
     # 2x [C:2, S:2] - Major balanced breakthrough
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 2, 2))
 
     # 2x [C:3, S:0] - Pure capability advancement
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 3, 0))
 
     # 2x [C:2, S:1] - Capability-focused research
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 2, 1))
 
     # 2x [C:3, S:1] - Major capability with minimal safety
-    for i in range(2):
+    for _i in range(2):
         papers.append(Paper(f"paper_{len(papers)}", 3, 1))
 
     return papers
 
 
-def get_role_distribution(player_count: int) -> Dict[Role, int]:
+def get_role_distribution(player_count: int) -> dict[Role, int]:
     """Get the role distribution for a given player count."""
     distributions = {
         5: {Role.SAFETY: 3, Role.ACCELERATIONIST: 1, Role.AGI: 1},

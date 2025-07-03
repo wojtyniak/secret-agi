@@ -1,7 +1,7 @@
 """Event system for tracking game state changes and providing player-specific views."""
 
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import Any
 
 from .models import Allegiance, EventType, GameEvent, GameState, Player, Role
 
@@ -31,7 +31,7 @@ class EventFilter:
         return filtered_state
 
     @staticmethod
-    def _filter_players_for_player(state: GameState, viewing_player: Player):
+    def _filter_players_for_player(state: GameState, viewing_player: Player) -> None:
         """Filter player information based on what the viewing player should know."""
         for player in state.players:
             if player.id == viewing_player.id:
@@ -50,7 +50,7 @@ class EventFilter:
             player.allegiance = Allegiance.SAFETY
 
     @staticmethod
-    def _filter_cards_for_player(state: GameState, player_id: str):
+    def _filter_cards_for_player(state: GameState, player_id: str) -> None:
         """Filter card information based on player access."""
         # Players can only see cards in their current hand
         if state.director_cards and state.current_director.id != player_id:
@@ -67,7 +67,7 @@ class EventFilter:
         # For now, keeping them visible as they represent published/discarded papers
 
     @staticmethod
-    def _filter_events_for_player(state: GameState, player_id: str):
+    def _filter_events_for_player(state: GameState, player_id: str) -> None:
         """Filter events to only include those visible to the player."""
         visible_events = []
 
@@ -78,7 +78,7 @@ class EventFilter:
         state.events = visible_events
 
     @staticmethod
-    def _filter_viewed_allegiances_for_player(state: GameState, player_id: str):
+    def _filter_viewed_allegiances_for_player(state: GameState, player_id: str) -> None:
         """Filter viewed allegiances to only show what this player has seen."""
         if player_id in state.viewed_allegiances:
             # Player can see their own viewed allegiances
@@ -119,7 +119,7 @@ class EventFilter:
         if event.type == EventType.CHAT_MESSAGE:
             # Chat messages are visible to all alive players
             player = state.get_player_by_id(player_id)
-            return player and player.alive
+            return player is not None and player.alive
 
         # Default to hiding unknown events
         return False
@@ -127,7 +127,7 @@ class EventFilter:
     @staticmethod
     def get_events_since_turn(
         state: GameState, player_id: str, since_turn: int
-    ) -> List[GameEvent]:
+    ) -> list[GameEvent]:
         """Get events visible to player since a specific turn."""
         filtered_state = EventFilter.filter_game_state_for_player(state, player_id)
         return [
@@ -138,28 +138,28 @@ class EventFilter:
 class GameStateManager:
     """Manages game state snapshots and event history."""
 
-    def __init__(self):
-        self.state_history: List[GameState] = []
-        self.current_state: Optional[GameState] = None
+    def __init__(self) -> None:
+        self.state_history: list[GameState] = []
+        self.current_state: GameState | None = None
 
-    def save_state_snapshot(self, state: GameState):
+    def save_state_snapshot(self, state: GameState) -> None:
         """Save a complete state snapshot."""
         snapshot = deepcopy(state)
         self.state_history.append(snapshot)
         self.current_state = snapshot
 
-    def get_state_at_turn(self, turn_number: int) -> Optional[GameState]:
+    def get_state_at_turn(self, turn_number: int) -> GameState | None:
         """Get game state at a specific turn."""
         for state in self.state_history:
             if state.turn_number == turn_number:
                 return deepcopy(state)
         return None
 
-    def get_current_state(self) -> Optional[GameState]:
+    def get_current_state(self) -> GameState | None:
         """Get the current game state."""
         return deepcopy(self.current_state) if self.current_state else None
 
-    def get_all_events(self) -> List[GameEvent]:
+    def get_all_events(self) -> list[GameEvent]:
         """Get all events from the current game."""
         if not self.current_state:
             return []
@@ -167,7 +167,7 @@ class GameStateManager:
 
     def get_events_for_player(
         self, player_id: str, since_turn: int = 0
-    ) -> List[GameEvent]:
+    ) -> list[GameEvent]:
         """Get events visible to a specific player since a turn."""
         if not self.current_state:
             return []
@@ -176,7 +176,7 @@ class GameStateManager:
             self.current_state, player_id, since_turn
         )
 
-    def get_filtered_state_for_player(self, player_id: str) -> Optional[GameState]:
+    def get_filtered_state_for_player(self, player_id: str) -> GameState | None:
         """Get filtered game state for a specific player."""
         if not self.current_state:
             return None
@@ -189,14 +189,14 @@ class EventLogger:
 
     @staticmethod
     def log_action_attempted(
-        state: GameState, player_id: str, action_name: str, success: bool, **kwargs
-    ):
+        state: GameState, player_id: str, action_name: str, success: bool, **kwargs: Any
+    ) -> None:
         """Log an action attempt."""
         event_data = {"action": action_name, "success": success, **kwargs}
         state.add_event(EventType.ACTION_ATTEMPTED, player_id, event_data)
 
     @staticmethod
-    def log_phase_transition(state: GameState, from_phase: str, to_phase: str):
+    def log_phase_transition(state: GameState, from_phase: str, to_phase: str) -> None:
         """Log a phase transition."""
         state.add_event(
             EventType.PHASE_TRANSITION,
@@ -206,8 +206,8 @@ class EventLogger:
 
     @staticmethod
     def log_vote_completed(
-        state: GameState, vote_type: str, result: bool, votes: Dict[str, bool]
-    ):
+        state: GameState, vote_type: str, result: bool, votes: dict[str, bool]
+    ) -> None:
         """Log completion of a vote."""
         state.add_event(
             EventType.VOTE_COMPLETED,
@@ -230,7 +230,7 @@ class EventLogger:
         safety: int,
         capability_gain: int,
         auto_published: bool = False,
-    ):
+    ) -> None:
         """Log a paper publication."""
         state.add_event(
             EventType.PAPER_PUBLISHED,
@@ -250,8 +250,8 @@ class EventLogger:
 
     @staticmethod
     def log_power_triggered(
-        state: GameState, power_level: int, director_id: Optional[str] = None
-    ):
+        state: GameState, power_level: int, director_id: str | None = None
+    ) -> None:
         """Log a power activation."""
         state.add_event(
             EventType.POWER_TRIGGERED,
@@ -263,7 +263,7 @@ class EventLogger:
         )
 
     @staticmethod
-    def log_game_ended(state: GameState, winners: List[Role], reason: str):
+    def log_game_ended(state: GameState, winners: list[Role], reason: str) -> None:
         """Log game ending."""
         state.add_event(
             EventType.GAME_ENDED,
@@ -281,7 +281,7 @@ class EventLogger:
         )
 
     @staticmethod
-    def log_chat_message(state: GameState, player_id: str, message: str):
+    def log_chat_message(state: GameState, player_id: str, message: str) -> None:
         """Log a chat message."""
         state.add_event(
             EventType.CHAT_MESSAGE,
@@ -290,7 +290,7 @@ class EventLogger:
         )
 
     @staticmethod
-    def log_player_eliminated(state: GameState, player_id: str, eliminator_id: str):
+    def log_player_eliminated(state: GameState, player_id: str, eliminator_id: str) -> None:
         """Log player elimination."""
         player = state.get_player_by_id(player_id)
         state.add_event(
@@ -307,7 +307,7 @@ class EventLogger:
     @staticmethod
     def log_allegiance_viewed(
         state: GameState, viewer_id: str, target_id: str, allegiance: Allegiance
-    ):
+    ) -> None:
         """Log allegiance viewing (private to viewer)."""
         state.add_event(
             EventType.STATE_CHANGED,
@@ -324,7 +324,7 @@ class PublicInformationProvider:
     """Provides public information that all players can see."""
 
     @staticmethod
-    def get_public_game_info(state: GameState) -> Dict:
+    def get_public_game_info(state: GameState) -> dict:
         """Get public information visible to all players."""
         return {
             "game_id": state.game_id,
@@ -351,7 +351,7 @@ class PublicInformationProvider:
         }
 
     @staticmethod
-    def get_public_vote_info(state: GameState) -> Dict:
+    def get_public_vote_info(state: GameState) -> dict:
         """Get public voting information."""
         return {
             "team_votes": dict(state.team_votes),

@@ -1,6 +1,6 @@
 """Action validation and processing for Secret AGI game engine."""
 
-from typing import List, Optional
+from typing import Any
 
 from .models import ActionType, EventType, GameState, GameUpdate, Phase, Player
 from .rules import GameRules
@@ -11,8 +11,8 @@ class ActionValidator:
 
     @staticmethod
     def validate_action(
-        state: GameState, player_id: str, action: ActionType, **kwargs
-    ) -> tuple[bool, Optional[str]]:
+        state: GameState, player_id: str, action: ActionType, **kwargs: Any
+    ) -> tuple[bool, str | None]:
         """
         Validate if a player can perform an action.
         Returns (is_valid, error_message).
@@ -37,15 +37,13 @@ class ActionValidator:
             return ActionValidator._validate_research_action(
                 state, player, action, **kwargs
             )
-        elif state.current_phase == Phase.GAME_OVER:
+        else:  # Phase.GAME_OVER
             return False, "Game is over"
-
-        return False, f"Unknown phase: {state.current_phase}"
 
     @staticmethod
     def _validate_team_proposal_action(
-        state: GameState, player: Player, action: ActionType, **kwargs
-    ) -> tuple[bool, Optional[str]]:
+        state: GameState, player: Player, action: ActionType, **kwargs: Any
+    ) -> tuple[bool, str | None]:
         """Validate actions during team proposal phase."""
 
         if action == ActionType.NOMINATE:
@@ -113,8 +111,8 @@ class ActionValidator:
 
     @staticmethod
     def _validate_research_action(
-        state: GameState, player: Player, action: ActionType, **kwargs
-    ) -> tuple[bool, Optional[str]]:
+        state: GameState, player: Player, action: ActionType, **kwargs: Any
+    ) -> tuple[bool, str | None]:
         """Validate actions during research phase."""
 
         if action == ActionType.DISCARD_PAPER:
@@ -193,7 +191,7 @@ class ActionValidator:
         return False, f"Action {action} not valid during research phase"
 
     @staticmethod
-    def get_valid_actions(state: GameState, player_id: str) -> List[ActionType]:
+    def get_valid_actions(state: GameState, player_id: str) -> list[ActionType]:
         """Get list of valid actions for a player."""
         valid_actions = [ActionType.OBSERVE]  # Always valid
 
@@ -251,7 +249,7 @@ class ActionProcessor:
 
     @staticmethod
     def process_action(
-        state: GameState, player_id: str, action: ActionType, **kwargs
+        state: GameState, player_id: str, action: ActionType, **kwargs: Any
     ) -> GameUpdate:
         """
         Process a player action and return the game update.
@@ -338,12 +336,12 @@ class ActionProcessor:
             )
 
     @staticmethod
-    def _process_observe(state: GameState, player_id: str):
+    def _process_observe(state: GameState, player_id: str) -> None:
         """Process observe action (no state change)."""
         state.add_event(EventType.ACTION_ATTEMPTED, player_id, {"action": "observe"})
 
     @staticmethod
-    def _process_nominate(state: GameState, player_id: str, target_id: str):
+    def _process_nominate(state: GameState, player_id: str, target_id: str) -> None:
         """Process engineer nomination."""
         state.nominated_engineer_id = target_id
         state.add_event(
@@ -353,7 +351,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _process_call_emergency_safety(state: GameState, player_id: str):
+    def _process_call_emergency_safety(state: GameState, player_id: str) -> None:
         """Process emergency safety call."""
         state.emergency_safety_called = True
         state.add_event(
@@ -361,7 +359,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _process_vote_emergency(state: GameState, player_id: str, vote: bool):
+    def _process_vote_emergency(state: GameState, player_id: str, vote: bool) -> None:
         """Process emergency safety vote."""
         state.emergency_votes[player_id] = vote
         state.add_event(
@@ -387,7 +385,7 @@ class ActionProcessor:
             )
 
     @staticmethod
-    def _process_vote_team(state: GameState, player_id: str, vote: bool):
+    def _process_vote_team(state: GameState, player_id: str, vote: bool) -> None:
         """Process team vote."""
         state.team_votes[player_id] = vote
         state.add_event(
@@ -411,7 +409,7 @@ class ActionProcessor:
             if result:
                 # Team approved - move to research phase
                 ActionProcessor._start_research_phase(state)
-                
+
                 # Check win conditions after phase transition (deck might be exhausted)
                 game_over, winners = GameRules.check_win_conditions(state)
                 if game_over:
@@ -428,7 +426,7 @@ class ActionProcessor:
                 GameRules.increment_failed_proposals(state)
                 if GameRules.auto_publish_required(state):
                     GameRules.auto_publish_paper(state)
-                    
+
                     # Check win conditions after auto-publish
                     game_over, winners = GameRules.check_win_conditions(state)
                     if game_over:
@@ -448,7 +446,7 @@ class ActionProcessor:
                     ActionProcessor._reset_team_proposal_state(state)
 
     @staticmethod
-    def _process_discard_paper(state: GameState, player_id: str, paper_id: str):
+    def _process_discard_paper(state: GameState, player_id: str, paper_id: str) -> None:
         """Process director paper discard."""
         if not state.director_cards:
             raise ValueError("No director cards available")
@@ -479,7 +477,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _process_publish_paper(state: GameState, player_id: str, paper_id: str):
+    def _process_publish_paper(state: GameState, player_id: str, paper_id: str) -> None:
         """Process paper publication by engineer."""
         GameRules.publish_paper(state, paper_id, player_id)
 
@@ -495,7 +493,7 @@ class ActionProcessor:
             ActionProcessor._prepare_next_round(state)
 
     @staticmethod
-    def _process_declare_veto(state: GameState, player_id: str):
+    def _process_declare_veto(state: GameState, player_id: str) -> None:
         """Process veto declaration by engineer."""
         # This would typically set a sub-phase for veto response
         # For now, we'll handle it as immediate director response required
@@ -504,7 +502,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _process_respond_veto(state: GameState, player_id: str, agree: bool):
+    def _process_respond_veto(state: GameState, player_id: str, agree: bool) -> None:
         """Process director response to veto."""
         state.add_event(
             EventType.ACTION_ATTEMPTED,
@@ -522,7 +520,7 @@ class ActionProcessor:
             GameRules.increment_failed_proposals(state)
             if GameRules.auto_publish_required(state):
                 GameRules.auto_publish_paper(state)
-                
+
                 # Check win conditions after auto-publish
                 game_over, winners = GameRules.check_win_conditions(state)
                 if game_over:
@@ -541,7 +539,7 @@ class ActionProcessor:
         # If disagree, engineer must publish normally
 
     @staticmethod
-    def _process_use_power(state: GameState, player_id: str, **kwargs):
+    def _process_use_power(state: GameState, player_id: str, **kwargs: Any) -> None:
         """Process director power usage."""
         power_type = kwargs.get("power_type")
         target_id = kwargs.get("target_id")
@@ -563,7 +561,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _start_research_phase(state: GameState):
+    def _start_research_phase(state: GameState) -> None:
         """Transition to research phase and draw cards for director."""
         state.current_phase = Phase.RESEARCH
 
@@ -586,7 +584,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _reset_to_team_proposal(state: GameState):
+    def _reset_to_team_proposal(state: GameState) -> None:
         """Reset to team proposal phase."""
         state.current_phase = Phase.TEAM_PROPOSAL
         ActionProcessor._reset_team_proposal_state(state)
@@ -598,7 +596,7 @@ class ActionProcessor:
         )
 
     @staticmethod
-    def _reset_team_proposal_state(state: GameState):
+    def _reset_team_proposal_state(state: GameState) -> None:
         """Reset team proposal state for new round."""
         state.nominated_engineer_id = None
         state.team_votes = {}
@@ -608,7 +606,7 @@ class ActionProcessor:
         state.engineer_cards = None
 
     @staticmethod
-    def _prepare_next_round(state: GameState):
+    def _prepare_next_round(state: GameState) -> None:
         """Prepare for the next round after successful research."""
         # Advance director
         GameRules.advance_director(state)

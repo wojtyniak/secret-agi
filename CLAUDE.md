@@ -29,9 +29,9 @@ Secret AGI is a multi-agent game system where AI agents play a social deduction 
 
 ```bash
 # Install dependencies
-uv sync
+uv sync --dev
 
-# Run tests (comprehensive suite with 102 tests)
+# Run tests (comprehensive suite with 116 tests)
 uv run pytest
 
 # Run specific test files
@@ -43,12 +43,15 @@ uv run python test_completeness.py
 # Test random game completion with different player counts
 uv run python -c "from secret_agi.engine.game_engine import run_random_game; print(run_random_game(5))"
 
-# Type checking (when mypy is configured)
+# Type checking
 uv run mypy .
 
-# Formatting (when configured)
-uv run ruff format .
+# Linting and formatting
 uv run ruff check .
+uv run ruff format .
+
+# All quality checks together
+uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run pytest
 ```
 
 ## Architecture Overview
