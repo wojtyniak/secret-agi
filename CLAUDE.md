@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Secret AGI is a multi-agent game system where AI agents play a social deduction game. The system is designed for controlled experiments comparing different agent architectures through automated gameplay and comprehensive performance analysis.
 
+## Project Documentation
+@SECRET_AGI_RULES.md - Game Rules
+@PRD.md - Project Requirements Document
+@ARCHITECTURE.md - Technical Architecture Overview
+
+## Other File
+@JOURNAL.md - This is a journal for Claude Code for any notes, learnings, or thoughts. Update it as you work on the project.
+
+
 ## Technology Stack
 
 - **Language**: Python 3.13+
@@ -109,3 +118,9 @@ Key tables include:
 - **New Agent Types**: Implement base agent interface → Register with orchestrator
 - **Custom Analysis**: Query database → Implement analysis logic → Expose via API
 - **Game Variants**: Modify game engine validation → Update state machine → Extend tools if needed
+
+## Development Rules
+
+- KISS - Keep It Simple Stupid
+- YAGNI - You Aren't Gonna Need It
+- DRY - Don't Repeat Yourself
