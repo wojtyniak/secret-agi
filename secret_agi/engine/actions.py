@@ -621,6 +621,9 @@ class ActionProcessor:
         # Advance director
         GameRules.advance_director(state)
 
+        # Reset engineer eligibility for new round
+        GameRules.reset_engineer_eligibility(state)
+
         # Reset to team proposal
         ActionProcessor._reset_to_team_proposal(state)
 
