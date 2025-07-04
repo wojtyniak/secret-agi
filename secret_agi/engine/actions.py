@@ -573,7 +573,7 @@ class ActionProcessor:
             # Not enough cards for full hand - give what's available
             state.director_cards = state.deck.copy()
             state.deck = []
-            
+
             # Check for deck exhaustion win condition after deck becomes empty
             game_over, winners = GameRules.check_win_conditions(state)
             if game_over:

@@ -31,13 +31,13 @@ def test_game_completeness(num_games: int = 100, player_count: int = 5) -> bool:
 
         try:
             player_ids = [f"player_{j}" for j in range(player_count)]
-            
+
             # Use persistent database for debugging if flag is set
             if DEBUG_FAILED_GAMES:
                 database_url = f"sqlite:///{DEBUG_DB_PATH}"
             else:
                 database_url = "sqlite:///:memory:"
-            
+
             # Create game with async engine and database persistence
             engine = asyncio.run(
                 create_game(player_ids, seed=i, database_url=database_url)
@@ -64,13 +64,13 @@ def test_game_completeness(num_games: int = 100, player_count: int = 5) -> bool:
                 print(
                     f"    Game {i} (ID: {game_id}) failed to complete after {result['turns_taken']} turns"
                 )
-                
+
                 # If debugging is enabled, record the failed game info
                 if DEBUG_FAILED_GAMES:
                     print(f"    Failed game data saved to {DEBUG_DB_PATH}")
                     print(f"    Use: python debug_game.py {game_id}")
                 else:
-                    print(f"    Set DEBUG_FAILED_GAMES=True and run 'just db-upgrade' to save failed games for analysis")
+                    print("    Set DEBUG_FAILED_GAMES=True and run 'just db-upgrade' to save failed games for analysis")
 
         except Exception as e:
             failed_games += 1

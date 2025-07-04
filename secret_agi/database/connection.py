@@ -42,8 +42,8 @@ async def init_database(database_url: str | None = None, echo: bool = False) -> 
 
     # Create tables automatically if they don't exist
     # This handles in-memory databases and new persistent databases
-    from sqlmodel import SQLModel
     from sqlalchemy import text
+    from sqlmodel import SQLModel
 
     # Import models to register them with SQLModel
     from . import models  # noqa: F401

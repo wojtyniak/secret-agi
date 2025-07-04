@@ -102,7 +102,7 @@ class GameOperations:
         """Load a game state from the database (only for non-deleted games)."""
         # First check if the game exists and is not deleted
         game_query = select(Game).where(
-            and_(Game.id == game_id, Game.deleted_at == None)  # type: ignore
+            and_(Game.id == game_id, Game.deleted_at.is_(None))  # type: ignore
         )
         game_result = await session.execute(game_query)
         if not game_result.scalar_one_or_none():
@@ -145,7 +145,7 @@ class GameOperations:
         """Soft delete a game by setting deleted_at timestamp."""
         result = await session.execute(
             update(Game)
-            .where(and_(Game.id == game_id, Game.deleted_at == None))  # type: ignore
+            .where(and_(Game.id == game_id, Game.deleted_at.is_(None)))  # type: ignore
             .values(
                 deleted_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
@@ -159,7 +159,7 @@ class GameOperations:
         """Restore a soft-deleted game by clearing deleted_at."""
         result = await session.execute(
             update(Game)
-            .where(and_(Game.id == game_id, Game.deleted_at != None))  # type: ignore
+            .where(and_(Game.id == game_id, Game.deleted_at.is_not(None)))  # type: ignore
             .values(deleted_at=None, updated_at=datetime.now(UTC))
         )
         await session.commit()
@@ -201,7 +201,7 @@ class GameOperations:
 
         # Convert enum to string if needed
         action_type_str = action_type.value if hasattr(action_type, 'value') else str(action_type)
-        
+
         action = Action(
             id=action_id,
             game_id=game_id,
