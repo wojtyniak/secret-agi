@@ -222,11 +222,52 @@ secret_agi/
 - **Web Interface Bug Fixes**: ✅ Game log viewing now working properly
 - **Detailed Action Logging**: ✅ Turn-by-turn action history with parameters and validation status
 - **Persistent Web Games**: ✅ On-disk database for session continuity and game replay
+- **Development Server**: ✅ `just dev` command with auto-reload on source changes
+- **API Fixes & Testing**: ✅ Database connection issues resolved, comprehensive test coverage for all error conditions
 
-### Phase 3 Goals 🎯 (Future)
+### Phase 3 Goals 🎯 (Next Session)
+- **Enhanced Action Logging**: Add more context to action logging - show paper details (C+X, S+Y), what papers were picked/discarded/played
+- **Power Usage Logging**: Log special abilities and power usage in game log (view allegiance, eliminate player, pick next director, etc.)
 - **Chat System**: Send chat message action and communication phases
 - **Advanced Web Features**: Real-time WebSocket updates and enhanced UI
 - **Performance Analytics**: Agent strategy analysis and comparison tools
 - **Tournament Systems**: Multi-game competitions and leaderboards
 
-The Secret AGI system is now **fully ready for immediate agent development**. **PHASE 2 COMPLETE**: All infrastructure for agent development completed, testing pipeline working, web interface functional. Users can now focus entirely on building and testing their agents!
+## 🛠️ Current Development Setup (2025-07-04)
+
+### **Ready-to-Use Development Environment**
+```bash
+# Development workflow
+just dev              # Start web server with auto-reload
+just test             # Run comprehensive test suite (203 tests)
+just check            # Quality checks (lint + typecheck + test)
+python test_your_agents.py  # Quick agent validation
+
+# Web interface: http://localhost:8000
+# - Real-time game monitoring
+# - Detailed turn-by-turn action logs
+# - Auto-reload on code changes
+# - Persistent database across sessions
+```
+
+### **Development Tools Working**
+- ✅ **Auto-reload Development Server**: `just dev` with FastAPI + uvicorn reload
+- ✅ **Comprehensive Testing**: 203 tests covering all game mechanics and error conditions
+- ✅ **Web Interface**: Complete game viewer with detailed action logging
+- ✅ **Database Persistence**: Games persist across server restarts with `web_games.db`
+- ✅ **Error Recovery**: Robust fallback handling when server state is lost
+- ✅ **Agent Framework**: BasePlayer interface with template and documentation
+
+### **Known Issues Resolved**
+- ✅ **get_async_session() Parameter Error**: Fixed database connection management in web API
+- ✅ **SimpleOrchestrator Properties**: Added current_game_id and engine properties for game-log access
+- ✅ **Game Log Fallback**: Automatic database fallback when orchestrator state is lost
+- ✅ **Frontend Display**: Enhanced JavaScript with color coding and proper action formatting
+- ✅ **Database Persistence**: Complete action and event history across server restarts
+
+### **Next Session Focus Areas**
+1. **Enhanced Action Logging**: Add paper details (C+X, S+Y) and context to all logged actions
+2. **Power Usage Visibility**: Log special abilities, allegiance viewing, player elimination in game log
+3. **Chat System Implementation**: Send chat message action and communication phases
+
+The Secret AGI system is now **fully ready for immediate agent development**. **PHASE 2 COMPLETE**: All infrastructure for agent development completed, testing pipeline working, web interface functional with detailed logging. Users can now focus entirely on building and testing their agents!

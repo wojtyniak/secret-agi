@@ -286,36 +286,107 @@ async def get_game_state():
 @app.get("/game-log", response_model=GameResponse)
 async def get_game_log():
     """Get detailed game log entries from database."""
-    if not current_orchestrator or not current_game or "game_id" not in current_game:
-        return GameResponse(
-            success=True,
-            message="No active game",
-            data=[]
-        )
-    
     try:
-        # Access database through the orchestrator's engine if available
-        if current_orchestrator and hasattr(current_orchestrator, '_engine'):
-            engine = current_orchestrator._engine
-            
-            # Use the orchestrator's database connection
-            from sqlalchemy.ext.asyncio import AsyncSession
-            from ..database.operations import GameOperations
-            
+        # Try to get game_id from multiple sources
+        game_id = None
+        
+        # Try to get from current_game first
+        if current_game and "game_id" in current_game:
             game_id = current_game["game_id"]
-            
-            # Create session from orchestrator's engine
-            async with AsyncSession(engine._engine) as session:
-                actions = await GameOperations.get_actions_for_game(session, game_id)
-                events = await GameOperations.get_events_for_game(session, game_id)
+            logger.info(f"Got game_id from current_game: {game_id}")
+        # Try to get from orchestrator as fallback
+        elif current_orchestrator and current_orchestrator.current_game_id:
+            game_id = current_orchestrator.current_game_id
+            logger.info(f"Got game_id from orchestrator: {game_id}")
+        
+        if not game_id:
+            # Try to get the most recent game from the database as fallback
+            try:
+                from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+                from sqlalchemy import text
+                from ..database.operations import GameOperations
                 
-                # Debug logging
-                logger.info(f"Retrieved {len(actions)} actions and {len(events)} events for game {game_id}")
+                # Create a direct database connection for web games
+                web_engine = create_async_engine("sqlite+aiosqlite:///web_games.db")
+                
+                async with AsyncSession(web_engine) as session:
+                    # Query for the most recent game
+                    result = await session.execute(
+                        text("SELECT id FROM games ORDER BY created_at DESC LIMIT 1")
+                    )
+                    row = result.fetchone()
+                    if row:
+                        game_id = row[0]
+                        logger.info(f"Found most recent game from database: {game_id}")
+                    else:
+                        logger.warning("No games found in database")
+                
+                # Clean up the temporary engine
+                await web_engine.dispose()
+                        
+            except Exception as e:
+                logger.error(f"Error querying database for recent game: {e}")
+            
+            if not game_id:
+                # Still no game ID available - return simple log as fallback
+                logger.warning("No game_id found anywhere, using fallback log")
+                return GameResponse(
+                    success=True,
+                    message="Game log retrieved (fallback)",
+                    game_id=None,
+                    data=game_log if game_log else []
+                )
+        
+        # Access database through the orchestrator's engine if available, or direct connection
+        actions = []
+        events = []
+        
+        if current_orchestrator and current_orchestrator.engine:
+            # Use orchestrator's engine - but GameEngine doesn't expose internal SQLAlchemy engine
+            # So we'll fall back to direct connection approach for now
+            logger.info("Orchestrator engine available, but using direct connection for compatibility")
+            try:
+                from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+                from ..database.operations import GameOperations
+                
+                # Create a direct database connection for web games
+                web_engine = create_async_engine("sqlite+aiosqlite:///web_games.db")
+                
+                async with AsyncSession(web_engine) as session:
+                    actions = await GameOperations.get_actions_for_game(session, game_id)
+                    events = await GameOperations.get_events_for_game(session, game_id)
+                    
+                    logger.info(f"Retrieved {len(actions)} actions and {len(events)} events from direct connection via orchestrator path for game {game_id}")
+                
+                # Clean up the temporary engine
+                await web_engine.dispose()
+                
+            except Exception as e:
+                logger.error(f"Error accessing database via orchestrator path: {e}")
+                actions = []
+                events = []
         else:
-            # Fallback - no orchestrator available
-            actions = []
-            events = []
-            logger.warning("No orchestrator available for database access")
+            # Fallback to direct database connection
+            try:
+                from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+                from ..database.operations import GameOperations
+                
+                # Create a direct database connection for web games
+                web_engine = create_async_engine("sqlite+aiosqlite:///web_games.db")
+                
+                async with AsyncSession(web_engine) as session:
+                    actions = await GameOperations.get_actions_for_game(session, game_id)
+                    events = await GameOperations.get_events_for_game(session, game_id)
+                    
+                    logger.info(f"Retrieved {len(actions)} actions and {len(events)} events from direct database connection for game {game_id}")
+                
+                # Clean up the temporary engine
+                await web_engine.dispose()
+                
+            except Exception as e:
+                logger.error(f"Error accessing database directly: {e}")
+                actions = []
+                events = []
         
         # Create detailed log entries
         detailed_log = []

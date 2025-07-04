@@ -4,7 +4,7 @@ A multi-agent game system where AI agents play Secret AGI, a social deduction ga
 
 ## Quick Start for Agent Developers
 
-### =€ **Immediate Development Setup**
+### =ï¿½ **Immediate Development Setup**
 
 ```bash
 # Clone and setup
@@ -20,8 +20,8 @@ just test
 # Test agent development infrastructure
 python test_your_agents.py
 
-# Launch web interface for game monitoring
-python launch_web_viewer.py
+# Launch web interface for game monitoring (auto-reload for development)
+just dev
 ```
 
 ### > **Building Your First Agent**
@@ -83,7 +83,7 @@ python launch_web_viewer.py
 # Open http://localhost:8000 to see real-time game action
 ```
 
-## <® **Game Overview**
+## <ï¿½ **Game Overview**
 
 Secret AGI is a 5-10 player social deduction game where players are AI researchers divided into factions:
 
@@ -138,11 +138,14 @@ Your agent receives filtered game state based on role and game events:
 }
 ```
 
-## >ê **Development and Testing**
+## >ï¿½ **Development and Testing**
 
 ### **Core Development Commands**
 
 ```bash
+# Web development
+just dev            # Start development server with auto-reload
+
 # Quality checks (run before committing)
 just check          # Run lint + typecheck + test
 just quality        # Format + check everything
@@ -204,14 +207,14 @@ just db-status      # Check migration status
            return self.agi_strategy(game_state, valid_actions)
    ```
 
-## =Ê **Monitoring and Analysis**
+## =ï¿½ **Monitoring and Analysis**
 
 ### **Web Interface Features**
 
 - **Real-time Game Monitoring**: Watch capability/safety progression
 - **Detailed Action Logs**: See every player decision with parameters
 - **Game Statistics**: Win rates, completion rates, game lengths
-- **Visual Feedback**: Color-coded action results (L=á)
+- **Visual Feedback**: Color-coded action results (L=ï¿½)
 
 ### **Database Access**
 
@@ -282,7 +285,7 @@ Implement role-specific strategies:
 - **Accelerationist**: Push capability advancement, coordinate with AGI  
 - **AGI**: Manipulate both sides while staying hidden until late game
 
-## <× **System Architecture**
+## <ï¿½ **System Architecture**
 
 ### **Core Components**
 
@@ -300,7 +303,7 @@ secret_agi/
       base_player.py          # Abstract agent interface
       random_player.py        # Random baseline implementation  
       agent_template.py       # Agent implementation guide
-      your_agent.py           #  Your agent implementation
+      your_agent.py           # ï¿½ Your agent implementation
    engine/                     # Core game logic (don't modify)
    database/                   # Persistence layer (don't modify)
    orchestrator/               # Game coordination (don't modify)
@@ -312,7 +315,7 @@ test_your_agents.py             # Quick agent testing
 launch_web_viewer.py            # Web interface launcher
 ```
 
-## <¯ **Next Steps**
+## <ï¿½ **Next Steps**
 
 1. **Implement your agent** using the template and examples
 2. **Test thoroughly** with the provided tools and web interface
@@ -320,7 +323,7 @@ launch_web_viewer.py            # Web interface launcher
 4. **Iterate and improve** based on game outcomes
 5. **Share results** and collaborate with other agent developers
 
-## =Ú **Additional Documentation**
+## =ï¿½ **Additional Documentation**
 
 - `SECRET_AGI_RULES.md` - Complete game rules and mechanics
 - `ARCHITECTURE.md` - Technical system architecture  

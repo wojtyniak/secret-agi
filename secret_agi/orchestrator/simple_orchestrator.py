@@ -300,3 +300,23 @@ class SimpleOrchestrator:
             return None
             
         return self._engine.get_game_state()
+
+    @property
+    def current_game_id(self) -> str | None:
+        """
+        Get the current game ID.
+
+        Returns:
+            Current game ID or None if no active game
+        """
+        return self._game_id
+
+    @property
+    def engine(self) -> GameEngine | None:
+        """
+        Get the current game engine.
+
+        Returns:
+            Current game engine or None if no active game
+        """
+        return self._engine

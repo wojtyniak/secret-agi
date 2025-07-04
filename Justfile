@@ -47,6 +47,15 @@ test-completeness:
 demo:
     uv run python -c "from secret_agi.engine.game_engine import run_random_game; print(run_random_game(5))"
 
+# Start web development server with auto-reload
+dev:
+    @echo "🚀 Starting Secret AGI development server with auto-reload..."
+    @echo "🌐 Web interface: http://localhost:8000"
+    @echo "📝 Auto-reloads on source code changes"
+    @echo "⏹️  Press Ctrl+C to stop"
+    @echo ""
+    uv run uvicorn secret_agi.api.simple_api:app --host 0.0.0.0 --port 8000 --reload --reload-dir secret_agi --log-level info
+
 # Database migration commands
 db-init:
     uv run alembic init alembic
