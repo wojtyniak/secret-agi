@@ -2,20 +2,26 @@
 
 import pytest
 
-from secret_agi.engine.game_engine import GameEngine, create_game, run_random_game
+from secret_agi.engine.game_engine import (
+    GameEngine,
+    create_game,
+    run_random_game,
+)
 from secret_agi.engine.models import ActionType, GameConfig, Phase, Role
 
 
 class TestGameEngine:
     """Test GameEngine class."""
 
-    def test_game_creation(self):
+    @pytest.mark.asyncio
+    async def test_game_creation(self):
         """Test basic game creation."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
         player_ids = ["p1", "p2", "p3", "p4", "p5"]
         config = GameConfig(5, player_ids, seed=42)
 
-        game_id = engine.create_game(config)
+        game_id = await engine.create_game(config)
         assert engine._current_state is not None
 
         assert game_id is not None
@@ -33,15 +39,17 @@ class TestGameEngine:
         assert roles.count(Role.ACCELERATIONIST) == 1
         assert roles.count(Role.AGI) == 1
 
-    def test_game_creation_different_sizes(self):
+    @pytest.mark.asyncio
+    async def test_game_creation_different_sizes(self):
         """Test game creation with different player counts."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
 
         for count in range(5, 11):
             player_ids = [f"p{i}" for i in range(count)]
             config = GameConfig(count, player_ids)
 
-            engine.create_game(config)
+            await engine.create_game(config)
             assert engine._current_state is not None
 
             assert len(engine._current_state.players) == count
@@ -50,11 +58,15 @@ class TestGameEngine:
             roles = [p.role for p in engine._current_state.players]
             assert roles.count(Role.AGI) == 1  # Always exactly 1 AGI
 
-    def test_get_game_state(self):
+    @pytest.mark.asyncio
+    async def test_get_game_state(self):
         """Test getting game state."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Full state (no player filter)
@@ -70,11 +82,15 @@ class TestGameEngine:
         assert filtered_state.game_id == full_state.game_id
         assert filtered_state.turn_number == full_state.turn_number
 
-    def test_get_valid_actions(self):
+    @pytest.mark.asyncio
+    async def test_get_valid_actions(self):
         """Test getting valid actions for players."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Director should be able to nominate
@@ -91,11 +107,15 @@ class TestGameEngine:
         assert ActionType.OBSERVE in actions
         assert ActionType.NOMINATE not in actions
 
-    def test_perform_action(self):
+    @pytest.mark.asyncio
+    async def test_perform_action(self):
         """Test performing actions."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         director_id = engine._current_state.current_director.id
@@ -108,7 +128,7 @@ class TestGameEngine:
         ]
         target_id = eligible_engineers[0]
 
-        result = engine.perform_action(
+        result = await engine.perform_action(
             director_id, ActionType.NOMINATE, target_id=target_id
         )
 
@@ -121,30 +141,36 @@ class TestGameEngine:
         assert engine._current_state.turn_number == 1
 
         # Invalid action
-        result = engine.perform_action(
+        result = await engine.perform_action(
             director_id, ActionType.NOMINATE, target_id=target_id
         )
         assert result.success is False
         assert result.error is not None and "already nominated" in result.error
 
-    def test_no_active_game(self):
+    @pytest.mark.asyncio
+    async def test_no_active_game(self):
         """Test operations when no game is active."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
 
         assert engine.get_game_state() is None
         assert engine.get_valid_actions("p1") == []
         assert engine.is_game_over() is False
         assert engine.get_winners() == []
 
-        result = engine.perform_action("p1", ActionType.OBSERVE)
+        result = await engine.perform_action("p1", ActionType.OBSERVE)
         assert result.success is False
         assert result.error is not None and "No active game" in result.error
 
-    def test_game_completion_tracking(self):
+    @pytest.mark.asyncio
+    async def test_game_completion_tracking(self):
         """Test game completion status tracking."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         assert engine.is_game_over() is False
@@ -157,11 +183,15 @@ class TestGameEngine:
         assert engine.is_game_over() is True
         assert engine.get_winners() == [Role.SAFETY]
 
-    def test_get_public_info(self):
+    @pytest.mark.asyncio
+    async def test_get_public_info(self):
         """Test getting public information."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         public_info = engine.get_public_info()
@@ -174,11 +204,15 @@ class TestGameEngine:
         assert "alive_players" in public_info
         assert public_info["player_count"] == 5
 
-    def test_get_events_for_player(self):
+    @pytest.mark.asyncio
+    async def test_get_events_for_player(self):
         """Test getting events for a specific player."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         director_id = engine._current_state.current_director.id
@@ -189,7 +223,7 @@ class TestGameEngine:
         ]
 
         # Perform an action to generate events
-        engine.perform_action(
+        await engine.perform_action(
             director_id, ActionType.NOMINATE, target_id=eligible_engineers[0]
         )
 
@@ -197,22 +231,30 @@ class TestGameEngine:
         events = engine.get_events_for_player(director_id, since_turn=0)
         assert len(events) > 0
 
-    def test_save_game(self):
+    @pytest.mark.asyncio
+    async def test_save_game(self):
         """Test game saving."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
-        save_id = engine.save_game()
+        save_id = await engine.save_game()
         assert save_id is not None
-        assert engine._current_state.game_id in save_id
+        assert isinstance(save_id, str)
 
-    def test_get_game_stats(self):
+    @pytest.mark.asyncio
+    async def test_get_game_stats(self):
         """Test getting game statistics."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         stats = engine.get_game_stats()
@@ -228,14 +270,18 @@ class TestGameEngine:
 class TestGameSimulation:
     """Test game simulation functionality."""
 
-    def test_simulate_to_completion(self):
+    @pytest.mark.asyncio
+    async def test_simulate_to_completion(self):
         """Test simulating a game to completion."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
-        result = engine.simulate_to_completion(max_turns=100)
+        result = await engine.simulate_to_completion(max_turns=100)
 
         assert "completed" in result
         assert "turns_taken" in result
@@ -249,18 +295,22 @@ class TestGameSimulation:
             assert engine.is_game_over() is True
             assert len(result["winners"]) > 0
 
-    def test_simulate_multiple_games(self):
+    @pytest.mark.asyncio
+    async def test_simulate_multiple_games(self):
         """Test that multiple simulations work."""
         completed_games = 0
         total_games = 5
 
         for i in range(total_games):
-            engine = GameEngine()
+            engine = GameEngine(database_url="sqlite:///:memory:")
+
+            await engine.init_database()
+
             config = GameConfig(5, [f"p{j}" for j in range(5)], seed=i)
-            engine.create_game(config)
+            await engine.create_game(config)
             assert engine._current_state is not None
 
-            result = engine.simulate_to_completion(max_turns=200)
+            result = await engine.simulate_to_completion(max_turns=200)
 
             if result["completed"]:
                 completed_games += 1
@@ -268,29 +318,35 @@ class TestGameSimulation:
         # Most games should complete
         assert completed_games >= total_games * 0.8  # At least 80% completion rate
 
-    def test_simulate_different_player_counts(self):
+    @pytest.mark.asyncio
+    async def test_simulate_different_player_counts(self):
         """Test simulation with different player counts."""
         for player_count in [5, 7, 10]:
-            engine = GameEngine()
+            engine = GameEngine(database_url="sqlite:///:memory:")
+            await engine.init_database()
             player_ids = [f"p{i}" for i in range(player_count)]
             config = GameConfig(player_count, player_ids, seed=42)
-            engine.create_game(config)
+            await engine.create_game(config)
             assert engine._current_state is not None
 
-            result = engine.simulate_to_completion(max_turns=150)
+            result = await engine.simulate_to_completion(max_turns=150)
 
             # Should handle different player counts
             assert result["turns_taken"] > 0
 
-    def test_simulation_turn_limit(self):
+    @pytest.mark.asyncio
+    async def test_simulation_turn_limit(self):
         """Test simulation respects turn limits."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Very low turn limit
-        result = engine.simulate_to_completion(max_turns=5)
+        result = await engine.simulate_to_completion(max_turns=5)
 
         assert result["turns_taken"] <= 5
         # Game might not be completed with such low limit
@@ -301,18 +357,20 @@ class TestGameSimulation:
 class TestConvenienceFunctions:
     """Test convenience functions."""
 
-    def test_create_game_function(self):
+    @pytest.mark.asyncio
+    async def test_create_game_function(self):
         """Test create_game convenience function."""
         player_ids = ["p1", "p2", "p3", "p4", "p5"]
-        engine = create_game(player_ids, seed=42)
+        engine = await create_game(player_ids, seed=42, database_url="sqlite:///:memory:")
 
         assert isinstance(engine, GameEngine)
         assert engine._current_state is not None
         assert len(engine._current_state.players) == 5
 
-    def test_run_random_game_function(self):
+    @pytest.mark.asyncio
+    async def test_run_random_game_function(self):
         """Test run_random_game convenience function."""
-        result = run_random_game(player_count=5, seed=42)
+        result = await run_random_game(player_count=5, seed=42, database_url="sqlite:///:memory:")
 
         assert "completed" in result
         assert "turns_taken" in result
@@ -322,10 +380,11 @@ class TestConvenienceFunctions:
         # Should have some reasonable results
         assert result["turns_taken"] > 0
 
-    def test_run_random_game_different_sizes(self):
+    @pytest.mark.asyncio
+    async def test_run_random_game_different_sizes(self):
         """Test run_random_game with different player counts."""
         for count in [5, 7, 10]:
-            result = run_random_game(player_count=count, seed=42)
+            result = await run_random_game(player_count=count, seed=42, database_url="sqlite:///:memory:")
 
             assert result["final_stats"]["player_count"] == count
             assert result["turns_taken"] > 0
@@ -334,53 +393,65 @@ class TestConvenienceFunctions:
 class TestGameEngineEdgeCases:
     """Test edge cases and error conditions."""
 
-    def test_invalid_config(self):
+    @pytest.mark.asyncio
+    async def test_invalid_config(self):
         """Test game creation with invalid config."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
 
         # Invalid player count
         with pytest.raises(ValueError):
             config = GameConfig(4, ["p1", "p2", "p3", "p4"])
-            engine.create_game(config)
+            await engine.create_game(config)
 
         # Mismatched player IDs
         with pytest.raises(ValueError):
             config = GameConfig(5, ["p1", "p2", "p3"])
-            engine.create_game(config)
+            await engine.create_game(config)
 
-    def test_action_on_nonexistent_player(self):
+    @pytest.mark.asyncio
+    async def test_action_on_nonexistent_player(self):
         """Test performing action for nonexistent player."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
-        result = engine.perform_action("nonexistent", ActionType.OBSERVE)
+        result = await engine.perform_action("nonexistent", ActionType.OBSERVE)
         assert result.success is False
         assert result.error is not None and "not found" in result.error
 
-    def test_multiple_game_creation(self):
+    @pytest.mark.asyncio
+    async def test_multiple_game_creation(self):
         """Test creating multiple games with same engine."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
 
         # Create first game
         config1 = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        game_id_1 = engine.create_game(config1)
+        game_id_1 = await engine.create_game(config1)
 
         # Create second game (should replace first)
         config2 = GameConfig(6, ["a1", "a2", "a3", "a4", "a5", "a6"])
-        game_id_2 = engine.create_game(config2)
+        game_id_2 = await engine.create_game(config2)
         assert engine._current_state is not None
 
         assert game_id_1 != game_id_2
         assert engine._current_state.game_id == game_id_2
         assert len(engine._current_state.players) == 6
 
-    def test_debug_get_full_state(self):
+    @pytest.mark.asyncio
+    async def test_debug_get_full_state(self):
         """Test debug access to full state."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         debug_state = engine.debug_get_full_state()
@@ -390,11 +461,15 @@ class TestGameEngineEdgeCases:
         assert debug_state is not engine._current_state
         assert debug_state.game_id == engine._current_state.game_id
 
-    def test_state_manager_integration(self):
+    @pytest.mark.asyncio
+    async def test_state_manager_integration(self):
         """Test integration with state manager."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"])
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Initial state should be saved
@@ -410,7 +485,9 @@ class TestGameEngineEdgeCases:
             if p.id != director_id and not p.was_last_engineer
         ]
 
-        engine.perform_action(director_id, ActionType.NOMINATE, target_id=eligible[0])
+        await engine.perform_action(
+            director_id, ActionType.NOMINATE, target_id=eligible[0]
+        )
 
         updated_state = engine.state_manager.get_current_state()
         assert updated_state is not None

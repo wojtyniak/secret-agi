@@ -44,6 +44,13 @@ just quality   # Format + check everything
 # Code formatting
 just fmt       # Format code with ruff
 just fix       # Auto-fix linting issues
+
+# Database migrations
+just db-migration "message"  # Create new migration
+just db-upgrade             # Apply pending migrations  
+just db-status              # Show migration status
+just db-history             # Show migration history
+just db-reset               # Reset database
 ```
 
 **Manual Commands (fallback):**
@@ -60,8 +67,8 @@ uv run pytest tests/test_models.py -v
 # Run game completeness validation
 uv run python test_completeness.py
 
-# Test random game completion with different player counts
-uv run python -c "from secret_agi.engine.game_engine import run_random_game; print(run_random_game(5))"
+# Test random game completion with different player counts  
+uv run python -c "import asyncio; from secret_agi.engine.game_engine import run_random_game; print(asyncio.run(run_random_game(5, database_url='sqlite:///:memory:')))"
 
 # Type checking (strict mypy - 0 errors)
 uv run mypy .
@@ -81,16 +88,17 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 1. **Game Engine Service**: ✅ **COMPLETED** - Implements Secret AGI game logic and maintains authoritative game state
 2. **Agent Orchestrator Service**: ⏳ **PLANNED** - Coordinates independent ADK agents and manages game flow
 3. **Agent Framework**: ✅ **COMPLETED** - Provides standardized interface for diverse agent implementations
-4. **Storage Layer**: ⏳ **PLANNED** - SQLite database for game data persistence and replay functionality
+4. **Storage Layer**: ✅ **COMPLETED** - SQLite database with SQLModel ORM and Alembic migrations
 5. **Web API**: ⏳ **PLANNED** - FastAPI-based REST API for UI and external control
 6. **Web UI**: ⏳ **PLANNED** - Browser-based interface for monitoring and control
 
 ### Key Design Principles
 
-- **Single Process, Multiple Agents**: All agents run within the same Python process with separate ADK sessions
-- **Sequential Game Execution**: No concurrent games - simplifies state management
+- **Async-Only Architecture**: Single async GameEngine with mandatory database persistence
+- **Sequential Game Execution**: No concurrent games - simplifies state management  
 - **Event Sourcing**: Complete state snapshots after each action for replay/branching
-- **Tool-Based Agent Interface**: Agents interact exclusively through ADK tools
+- **Tool-Based Agent Interface**: Agents interact exclusively through async tools
+- **Database-First Design**: All operations persist to SQLite with automatic migrations
 
 ## Game Rules Implementation
 
@@ -153,52 +161,62 @@ Key tables include:
 
 ## Current Implementation Status
 
-### ✅ **COMPLETED** (Phase 1: Game Engine)
-- **Core Game Engine**: Complete implementation of all Secret AGI rules
+### ✅ **COMPLETED** (Phase 1: Async Game Engine + Database)
+- **Async Game Engine**: Single consolidated async-only GameEngine with mandatory persistence
+- **Database Integration**: Complete SQLModel/SQLite persistence with Alembic migrations
+- **Core Game Logic**: Complete implementation of all Secret AGI rules
 - **Data Models**: Immutable state management with event sourcing
 - **Action System**: Validation-first action processing with comprehensive error handling
 - **Rules Engine**: Win conditions, powers, emergency safety, veto system
-- **Player Interface**: Abstract base class with RandomPlayer implementation
+- **Player Interface**: Async base class with RandomPlayer implementation
 - **Testing Suite**: 116 comprehensive unit and integration tests (100% passing)
 - **Game Validation**: Automated completeness testing with 72-100% success rate
 - **Type Safety**: Strict mypy configuration with 0 errors across entire codebase
 - **Code Quality**: Complete ruff linting and formatting pipeline
-- **Development Tooling**: Justfile with all essential development commands
+- **Development Tooling**: Justfile with database migration commands
 
 ### 📂 **Available Components**
 ```
 secret_agi/
 ├── engine/
-│   ├── models.py          # Core data structures
-│   ├── game_engine.py     # Main game orchestrator  
-│   ├── actions.py         # Action validation & processing
-│   ├── rules.py           # Game rules & win conditions
-│   └── events.py          # Event system & info filtering
+│   ├── models.py           # Core data structures
+│   ├── game_engine.py      # Async game engine with database
+│   ├── actions.py          # Action validation & processing
+│   ├── rules.py            # Game rules & win conditions
+│   └── events.py           # Event system & info filtering
+├── database/
+│   ├── models.py           # SQLModel database tables
+│   ├── operations.py       # Database CRUD operations
+│   ├── connection.py       # Async database connection
+│   └── enums.py            # Database-specific enums
 ├── players/
-│   ├── base_player.py     # Abstract player interface
-│   └── random_player.py   # Random player implementation
-└── tests/                 # Comprehensive test suite
+│   ├── base_player.py      # Abstract async player interface
+│   └── random_player.py    # Random player implementation
+├── tests/                  # Comprehensive test suite (116 tests)
+└── alembic/                # Database migrations
 ```
 
 ### ⏳ **TODO** (Future Phases)
 - Agent integration with ADK framework
 - Web API development (FastAPI)
-- Database persistence (SQLite + SQLModel)
 - Web UI for monitoring and control
 - Agent orchestrator service
 - Performance monitoring with Langfuse
 
 ### 🎯 **Production Ready**
-The game engine is fully production-ready with:
-- **100% Test Coverage**: All 116 tests passing
+The async game engine and database system are fully production-ready with:
+- **100% Test Coverage**: All 116 tests passing with async GameEngine
 - **Type Safety**: 0 mypy errors with strict configuration  
 - **Code Quality**: Full linting and formatting pipeline
-- **Developer Experience**: Complete tooling with Justfile commands
+- **Developer Experience**: Complete tooling with Justfile and database commands
+- **Async Architecture**: Single consolidated async GameEngine with mandatory persistence
+- **Database Persistence**: Complete SQLModel/SQLite integration with Alembic migrations
 - **Game Completeness**: Reliable game termination across all player counts
-- **Clean Architecture**: Well-structured, maintainable codebase
+- **Clean Architecture**: Consolidated, maintainable async codebase
 
 **Ready to support:**
 - Multiple AI agent implementations
 - Game replay and branching capabilities
 - Performance analysis and metrics collection
 - Integration with external systems and APIs
+- Real-time game state persistence and recovery

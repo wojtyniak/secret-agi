@@ -290,7 +290,9 @@ class EventLogger:
         )
 
     @staticmethod
-    def log_player_eliminated(state: GameState, player_id: str, eliminator_id: str) -> None:
+    def log_player_eliminated(
+        state: GameState, player_id: str, eliminator_id: str
+    ) -> None:
         """Log player elimination."""
         player = state.get_player_by_id(player_id)
         state.add_event(

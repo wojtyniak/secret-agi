@@ -47,6 +47,35 @@ test-completeness:
 demo:
     uv run python -c "from secret_agi.engine.game_engine import run_random_game; print(run_random_game(5))"
 
+# Database migration commands
+db-init:
+    uv run alembic init alembic
+
+# Create a new database migration
+db-migration MESSAGE:
+    uv run alembic revision --autogenerate -m "{{MESSAGE}}"
+
+# Apply pending migrations
+db-upgrade:
+    uv run alembic upgrade head
+
+# Downgrade database by one revision
+db-downgrade:
+    uv run alembic downgrade -1
+
+# Show current migration status
+db-status:
+    uv run alembic current
+
+# Show migration history
+db-history:
+    uv run alembic history --verbose
+
+# Reset database (downgrade to base then upgrade)
+db-reset:
+    uv run alembic downgrade base
+    uv run alembic upgrade head
+
 # Install dependencies
 install:
     uv sync --dev

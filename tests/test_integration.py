@@ -1,5 +1,7 @@
 """Integration tests for the complete Secret AGI game system."""
 
+import pytest
+
 from secret_agi.engine.game_engine import GameEngine, run_random_game
 from secret_agi.engine.models import ActionType, GameConfig, Phase, Role
 from secret_agi.players.random_player import BiasedRandomPlayer, RandomPlayer
@@ -8,11 +10,15 @@ from secret_agi.players.random_player import BiasedRandomPlayer, RandomPlayer
 class TestCompleteGameFlow:
     """Test complete game flows from start to finish."""
 
-    def test_basic_game_flow(self):
+    @pytest.mark.asyncio
+    async def test_basic_game_flow(self):
         """Test a basic game flow through multiple phases."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Initial state
@@ -28,7 +34,7 @@ class TestCompleteGameFlow:
         ]
 
         # Step 1: Director nominates engineer
-        result = engine.perform_action(
+        result = await engine.perform_action(
             director_id, ActionType.NOMINATE, target_id=eligible_engineers[0]
         )
         assert result.success is True
@@ -36,7 +42,9 @@ class TestCompleteGameFlow:
 
         # Step 2: All players vote on team (majority yes)
         for player in engine._current_state.players:
-            result = engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=True)
+            result = await engine.perform_action(
+                player.id, ActionType.VOTE_TEAM, vote=True
+            )
             assert result.success is True
 
         # Should transition to research phase
@@ -46,7 +54,7 @@ class TestCompleteGameFlow:
 
         # Step 3: Director discards a paper
         paper_to_discard = engine._current_state.director_cards[0]
-        result = engine.perform_action(
+        result = await engine.perform_action(
             director_id, ActionType.DISCARD_PAPER, paper_id=paper_to_discard.id
         )
         assert result.success is True
@@ -60,7 +68,7 @@ class TestCompleteGameFlow:
         old_capability = engine._current_state.capability
         old_safety = engine._current_state.safety
 
-        result = engine.perform_action(
+        result = await engine.perform_action(
             engineer_id, ActionType.PUBLISH_PAPER, paper_id=paper_to_publish.id
         )
         assert result.success is True
@@ -73,11 +81,15 @@ class TestCompleteGameFlow:
         assert engine._current_state.current_phase == Phase.TEAM_PROPOSAL
         assert engine._current_state.round_number == 2
 
-    def test_failed_proposal_flow(self):
+    @pytest.mark.asyncio
+    async def test_failed_proposal_flow(self):
         """Test the flow when team proposals fail."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         director_id = engine._current_state.current_director.id
@@ -88,14 +100,14 @@ class TestCompleteGameFlow:
         ]
 
         # Nominate engineer
-        engine.perform_action(
+        await engine.perform_action(
             director_id, ActionType.NOMINATE, target_id=eligible_engineers[0]
         )
 
         # Vote fails (majority no)
         votes = [True, False, False, False, False]  # Only one yes vote
         for i, player in enumerate(engine._current_state.players):
-            engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=votes[i])
+            await engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=votes[i])
 
         # Should stay in team proposal, increment failures, advance director
         assert engine._current_state.current_phase == Phase.TEAM_PROPOSAL
@@ -103,11 +115,15 @@ class TestCompleteGameFlow:
         assert engine._current_state.current_director.id != director_id
         assert engine._current_state.nominated_engineer_id is None
 
-    def test_emergency_safety_flow(self):
+    @pytest.mark.asyncio
+    async def test_emergency_safety_flow(self):
         """Test emergency safety mechanism."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Set up conditions for emergency safety
@@ -116,13 +132,13 @@ class TestCompleteGameFlow:
 
         # Any player can call emergency safety
         caller_id = engine._current_state.players[0].id
-        result = engine.perform_action(caller_id, ActionType.CALL_EMERGENCY_SAFETY)
+        result = await engine.perform_action(caller_id, ActionType.CALL_EMERGENCY_SAFETY)
         assert result.success is True
         assert engine._current_state.emergency_safety_called is True
 
         # All players vote on emergency safety
         for player in engine._current_state.players:
-            result = engine.perform_action(
+            result = await engine.perform_action(
                 player.id, ActionType.VOTE_EMERGENCY, vote=True
             )
             assert result.success is True
@@ -138,16 +154,18 @@ class TestCompleteGameFlow:
             if p.id != director_id and not p.was_last_engineer
         ]
 
-        engine.perform_action(director_id, ActionType.NOMINATE, target_id=eligible[0])
+        await engine.perform_action(
+            director_id, ActionType.NOMINATE, target_id=eligible[0]
+        )
 
         # Vote yes on team
         for player in engine._current_state.players:
-            engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=True)
+            await engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=True)
 
         # Research phase
         assert engine._current_state.director_cards is not None
         paper_to_discard = engine._current_state.director_cards[0]
-        engine.perform_action(
+        await engine.perform_action(
             director_id, ActionType.DISCARD_PAPER, paper_id=paper_to_discard.id
         )
 
@@ -158,7 +176,7 @@ class TestCompleteGameFlow:
         old_capability = engine._current_state.capability
 
         assert engineer_id is not None
-        engine.perform_action(
+        await engine.perform_action(
             engineer_id, ActionType.PUBLISH_PAPER, paper_id=paper_to_publish.id
         )
 
@@ -167,11 +185,15 @@ class TestCompleteGameFlow:
         assert engine._current_state.capability == expected_capability
         assert engine._current_state.emergency_safety_active is False
 
-    def test_auto_publish_after_three_failures(self):
+    @pytest.mark.asyncio
+    async def test_auto_publish_after_three_failures(self):
         """Test auto-publish mechanism after three failed proposals."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         initial_deck_size = len(engine._current_state.deck)
@@ -186,14 +208,14 @@ class TestCompleteGameFlow:
             ]
 
             # Nominate
-            engine.perform_action(
+            await engine.perform_action(
                 director_id, ActionType.NOMINATE, target_id=eligible[0]
             )
 
             # Vote fails
             for i, player in enumerate(engine._current_state.players):
                 vote = i == 0  # Only first player votes yes
-                engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=vote)
+                await engine.perform_action(player.id, ActionType.VOTE_TEAM, vote=vote)
 
         # After third failure, should auto-publish
         assert engine._current_state.failed_proposals == 0  # Reset after auto-publish
@@ -212,11 +234,15 @@ class TestCompleteGameFlow:
 class TestWinConditions:
     """Test various win conditions in complete games."""
 
-    def test_safety_win_by_safety_15(self):
+    @pytest.mark.asyncio
+    async def test_safety_win_by_safety_15(self):
         """Test Safety win by reaching safety 15."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Manually set state close to safety win
@@ -233,7 +259,7 @@ class TestWinConditions:
         high_safety_paper = Paper("win_paper", 0, 2)  # +2 safety
         engine._current_state.engineer_cards = [high_safety_paper]
 
-        result = engine.perform_action(
+        result = await engine.perform_action(
             "p2", ActionType.PUBLISH_PAPER, paper_id="win_paper"
         )
 
@@ -242,11 +268,15 @@ class TestWinConditions:
         assert Role.SAFETY in engine._current_state.winners
         assert engine._current_state.current_phase == Phase.GAME_OVER
 
-    def test_accelerationist_win_by_capability_gap(self):
+    @pytest.mark.asyncio
+    async def test_accelerationist_win_by_capability_gap(self):
         """Test Accelerationist/AGI win by capability-safety gap."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Set state close to accelerationist win
@@ -255,18 +285,22 @@ class TestWinConditions:
 
         # Any action that checks win conditions should trigger the win
         director_id = engine._current_state.current_director.id
-        result = engine.perform_action(director_id, ActionType.OBSERVE)
+        result = await engine.perform_action(director_id, ActionType.OBSERVE)
 
         assert result.success is True
         assert engine._current_state.is_game_over is True
         assert Role.ACCELERATIONIST in engine._current_state.winners
         assert Role.AGI in engine._current_state.winners
 
-    def test_deck_exhaustion_win(self):
+    @pytest.mark.asyncio
+    async def test_deck_exhaustion_win(self):
         """Test win by deck exhaustion."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Exhaust deck
@@ -275,7 +309,7 @@ class TestWinConditions:
         engine._current_state.safety = 5  # Equal, so Safety wins
 
         # Any action should trigger win check
-        result = engine.perform_action(
+        result = await engine.perform_action(
             engine._current_state.players[0].id, ActionType.OBSERVE
         )
 
@@ -287,11 +321,15 @@ class TestWinConditions:
 class TestRandomPlayerIntegration:
     """Test integration with RandomPlayer implementations."""
 
-    def test_random_player_basic_functionality(self):
+    @pytest.mark.asyncio
+    async def test_random_player_basic_functionality(self):
         """Test RandomPlayer can play basic actions."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Create a random player
@@ -316,14 +354,18 @@ class TestRandomPlayerIntegration:
             assert action in valid_actions
 
             # Player should be able to perform the action
-            result = player.perform_action(action, **params)
+            result = await player.perform_action(action, **params)
             assert result.success is True
 
-    def test_biased_random_player(self):
+    @pytest.mark.asyncio
+    async def test_biased_random_player(self):
         """Test BiasedRandomPlayer functionality."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Create biased random player
@@ -338,12 +380,14 @@ class TestRandomPlayerIntegration:
         assert player.role is not None
         assert player.role_bias is not None
 
-    def test_multiple_random_players_game(self):
+    @pytest.mark.asyncio
+    async def test_multiple_random_players_game(self):
         """Test a game with multiple random players."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
         player_ids = ["p1", "p2", "p3", "p4", "p5"]
         config = GameConfig(5, player_ids, seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Create random players for all positions
@@ -373,7 +417,7 @@ class TestRandomPlayerIntegration:
 
                 if non_observe_actions:
                     action, params = player.choose_action(state, valid_actions)
-                    result = player.perform_action(action, **params)
+                    result = await player.perform_action(action, **params)
 
                     if result.success:
                         # Notify all players of the update
@@ -392,21 +436,23 @@ class TestRandomPlayerIntegration:
 class TestRandomGameCompletion:
     """Test that random games complete successfully."""
 
-    def test_single_random_game_completion(self):
+    @pytest.mark.asyncio
+    async def test_single_random_game_completion(self):
         """Test that a single random game completes."""
-        result = run_random_game(player_count=5, seed=42)
+        result = await run_random_game(player_count=5, seed=42, database_url="sqlite:///:memory:")
 
         assert result["completed"] is True
         assert result["turns_taken"] > 0
         assert len(result["winners"]) > 0
         assert result["final_stats"]["is_game_over"] is True
 
-    def test_multiple_random_games_completion(self):
+    @pytest.mark.asyncio
+    async def test_multiple_random_games_completion(self):
         """Test that multiple random games complete."""
         results = []
 
         for seed in range(10):
-            result = run_random_game(player_count=5, seed=seed)
+            result = await run_random_game(player_count=5, seed=seed, database_url="sqlite:///:memory:")
             results.append(result)
 
         # Most games should complete (allowing for some edge cases in random gameplay)
@@ -418,16 +464,18 @@ class TestRandomGameCompletion:
         unique_winners = set(all_winners)
         assert len(unique_winners) > 1  # Should have different outcomes
 
-    def test_different_player_count_completions(self):
+    @pytest.mark.asyncio
+    async def test_different_player_count_completions(self):
         """Test game completion with different player counts."""
         for player_count in [5, 6, 7, 8, 9, 10]:
-            result = run_random_game(player_count=player_count, seed=42)
+            result = await run_random_game(player_count=player_count, seed=42, database_url="sqlite:///:memory:")
 
             assert result["completed"] is True
             assert result["final_stats"]["player_count"] == player_count
             assert result["turns_taken"] > 0
 
-    def test_large_batch_random_games(self):
+    @pytest.mark.asyncio
+    async def test_large_batch_random_games(self):
         """Test a large batch of random games for stability."""
         completed_games = 0
         total_games = 50
@@ -435,7 +483,7 @@ class TestRandomGameCompletion:
         min_turns_seen = float("inf")
 
         for i in range(total_games):
-            result = run_random_game(player_count=5, seed=i)
+            result = await run_random_game(player_count=5, seed=i, database_url="sqlite:///:memory:")
 
             if result["completed"]:
                 completed_games += 1
@@ -460,15 +508,17 @@ class TestRandomGameCompletion:
 class TestSystemStress:
     """Stress tests for the complete system."""
 
-    def test_rapid_game_creation(self):
+    @pytest.mark.asyncio
+    async def test_rapid_game_creation(self):
         """Test creating many games rapidly."""
         engines = []
 
         for i in range(20):
-            engine = GameEngine()
+            engine = GameEngine(database_url="sqlite:///:memory:")
+            await engine.init_database()
             player_ids = [f"p{j}_{i}" for j in range(5)]
             config = GameConfig(5, player_ids, seed=i)
-            engine.create_game(config)
+            await engine.create_game(config)
             assert engine._current_state is not None
             engines.append(engine)
 
@@ -478,34 +528,39 @@ class TestSystemStress:
             assert engine._current_state is not None
             assert not engine.is_game_over()
 
-    def test_long_running_simulation(self):
+    @pytest.mark.asyncio
+    async def test_long_running_simulation(self):
         """Test a long-running simulation doesn't break."""
-        engine = GameEngine()
+        engine = GameEngine(database_url="sqlite:///:memory:")
+
+        await engine.init_database()
+
         config = GameConfig(5, ["p1", "p2", "p3", "p4", "p5"], seed=42)
-        engine.create_game(config)
+        await engine.create_game(config)
         assert engine._current_state is not None
 
         # Run for many turns
-        result = engine.simulate_to_completion(max_turns=1000)
+        result = await engine.simulate_to_completion(max_turns=1000)
 
         # Should either complete or hit turn limit gracefully
         assert result["turns_taken"] <= 1000
         if result["completed"]:
             assert engine.is_game_over()
 
-    def test_edge_case_scenarios(self):
+    @pytest.mark.asyncio
+    async def test_edge_case_scenarios(self):
         """Test various edge case scenarios."""
         # Game with minimum players
-        result = run_random_game(player_count=5, seed=1)
+        result = await run_random_game(player_count=5, seed=1, database_url="sqlite:///:memory:")
         assert result["completed"]
 
         # Game with maximum players
-        result = run_random_game(player_count=10, seed=1)
+        result = await run_random_game(player_count=10, seed=1, database_url="sqlite:///:memory:")
         assert result["completed"]
 
         # Multiple games with same seed (should be deterministic)
-        result1 = run_random_game(player_count=5, seed=123)
-        result2 = run_random_game(player_count=5, seed=123)
+        result1 = await run_random_game(player_count=5, seed=123, database_url="sqlite:///:memory:")
+        result2 = await run_random_game(player_count=5, seed=123, database_url="sqlite:///:memory:")
 
         # Results should be identical with same seed
         assert result1["winners"] == result2["winners"]

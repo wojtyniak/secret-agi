@@ -5,7 +5,12 @@ description = "Multi-agent game system for Secret AGI social deduction game"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "aiosqlite>=0.21.0",
+    "alembic>=1.16.2",
+    "greenlet>=3.2.3",
     "pydantic>=2.0.0",
+    "pytest-asyncio>=1.0.0",
+    "sqlmodel>=0.0.24",
 ]
 
 [project.optional-dependencies]

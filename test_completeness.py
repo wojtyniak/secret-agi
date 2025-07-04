@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test script to validate game completeness with RandomPlayer automated runs."""
 
+import asyncio
 import sys
 import time
 from statistics import mean, median
@@ -25,9 +26,9 @@ def test_game_completeness(num_games: int = 100, player_count: int = 5) -> bool:
 
         try:
             player_ids = [f"player_{j}" for j in range(player_count)]
-            engine = create_game(player_ids, seed=i)
+            engine = asyncio.run(create_game(player_ids, seed=i, database_url="sqlite:///:memory:"))
             # Use higher turn limit for more reliable completion
-            result = engine.simulate_to_completion(max_turns=2000)
+            result = asyncio.run(engine.simulate_to_completion(max_turns=2000))
 
             if result["completed"]:
                 completed_games += 1

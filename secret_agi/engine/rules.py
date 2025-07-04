@@ -1,6 +1,5 @@
 """Game rules and win condition checking for Secret AGI."""
 
-
 from .models import EventType, GameState, Phase, Player, Role
 
 

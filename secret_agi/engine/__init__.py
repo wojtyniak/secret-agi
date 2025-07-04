@@ -1,6 +1,10 @@
 """Game Engine Module"""
 
-from .game_engine import GameEngine
+from .game_engine import (
+    GameEngine,
+    create_game,
+    run_random_game,
+)
 from .models import (
     ActionType,
     Allegiance,
@@ -24,4 +28,6 @@ __all__ = [
     "Phase",
     "ActionType",
     "GameEngine",
+    "create_game",
+    "run_random_game",
 ]

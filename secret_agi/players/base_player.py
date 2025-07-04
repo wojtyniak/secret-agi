@@ -108,7 +108,7 @@ class BasePlayer(ABC):
         """
         self.game_engine = game_engine
 
-    def perform_action(self, action: ActionType, **kwargs: Any) -> GameUpdate:
+    async def perform_action(self, action: ActionType, **kwargs: Any) -> GameUpdate:
         """
         Perform an action through the game engine.
 
@@ -124,7 +124,7 @@ class BasePlayer(ABC):
         if not self.game_engine:
             raise ValueError("Player not connected to game engine")
 
-        return self.game_engine.perform_action(self.player_id, action, **kwargs)
+        return await self.game_engine.perform_action(self.player_id, action, **kwargs)
 
     def get_valid_actions(self) -> list[ActionType]:
         """
