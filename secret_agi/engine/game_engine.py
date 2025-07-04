@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from ..database.connection import get_async_session, init_database
-from ..database.operations import GameOperations
+from ..database.operations import GameOperations, RecoveryOperations
 from ..settings import get_database_url
 from .actions import ActionProcessor, ActionValidator
 from .events import EventFilter, GameStateManager
@@ -106,20 +106,131 @@ class GameEngine:
         Load a game from the database.
         Returns True if successful, False if game not found.
         """
-
-        # For now, we'll implement this as a placeholder since GameState deserialization
-        # from JSON requires complex enum mapping. In a full implementation, this would
-        # reconstruct the GameState from the stored JSON data.
         async with get_async_session() as session:
-            # Check if game exists
+            # Check if game exists and get state data
             state_data = await GameOperations.load_game_state(session, game_id, turn)
 
             if state_data:
-                # In practice, we'd reconstruct the GameState here
-                # For now, return False to indicate loading not yet implemented
-                return False
+                try:
+                    # Reconstruct GameState from JSON data
+                    # Note: This is a simplified implementation that works because
+                    # the current GameState structure doesn't have complex nested objects
+                    # that require special deserialization
+                    reconstructed_state = self._reconstruct_game_state(
+                        state_data, game_id
+                    )
+
+                    # Set as current state
+                    self._current_state = reconstructed_state
+                    self._game_id = game_id
+                    self.state_manager.save_state_snapshot(reconstructed_state)
+
+                    return True
+                except Exception:
+                    # If reconstruction fails, game can't be loaded
+                    return False
 
             return False
+
+    def _reconstruct_game_state(
+        self, state_data: dict[str, Any], game_id: str
+    ) -> GameState:
+        """
+        Reconstruct a GameState from JSON data.
+
+        This handles the conversion of string enum values back to proper enum types.
+        """
+        # Create a new GameState with the game_id
+        state = GameState(game_id=game_id)
+
+        # Copy basic fields that don't need enum conversion
+        for field in [
+            "turn_number",
+            "round_number",
+            "capability",
+            "safety",
+            "failed_proposals",
+            "is_game_over",
+            "current_director_index",
+        ]:
+            if field in state_data:
+                setattr(state, field, state_data[field])
+
+        # Handle enum fields
+        if "current_phase" in state_data:
+            state.current_phase = Phase(state_data["current_phase"])
+
+        # Handle complex list fields
+        if "players" in state_data:
+            state.players = [self._reconstruct_player(p) for p in state_data["players"]]
+
+        if "deck" in state_data:
+            from .models import Paper
+
+            state.deck = [Paper(**paper) for paper in state_data["deck"]]
+
+        if "discard" in state_data:
+            from .models import Paper
+
+            state.discard = [Paper(**paper) for paper in state_data["discard"]]
+
+        if "winners" in state_data:
+            state.winners = [Role(role) for role in state_data["winners"]]
+
+        # Handle optional card states
+        if "director_cards" in state_data and state_data["director_cards"]:
+            from .models import Paper
+
+            state.director_cards = [
+                Paper(**paper) for paper in state_data["director_cards"]
+            ]
+
+        if "engineer_cards" in state_data and state_data["engineer_cards"]:
+            from .models import Paper
+
+            state.engineer_cards = [
+                Paper(**paper) for paper in state_data["engineer_cards"]
+            ]
+
+        # Handle optional fields
+        for field in [
+            "nominated_engineer",
+            "emergency_safety_active",
+            "veto_unlocked",
+            "agi_must_reveal",
+            "veto_declared",
+        ]:
+            if field in state_data:
+                setattr(state, field, state_data[field])
+
+        # Handle vote dictionaries
+        if "team_votes" in state_data and state_data["team_votes"]:
+            state.team_votes = state_data["team_votes"]
+
+        if "emergency_votes" in state_data and state_data["emergency_votes"]:
+            state.emergency_votes = state_data["emergency_votes"]
+
+        # Handle viewed allegiances
+        if "viewed_allegiances" in state_data and state_data["viewed_allegiances"]:
+            state.viewed_allegiances = {
+                viewer_id: {
+                    target_id: Allegiance(allegiance)
+                    for target_id, allegiance in targets.items()
+                }
+                for viewer_id, targets in state_data["viewed_allegiances"].items()
+            }
+
+        return state
+
+    def _reconstruct_player(self, player_data: dict[str, Any]) -> Player:
+        """Reconstruct a Player from JSON data."""
+        return Player(
+            id=player_data["id"],
+            role=Role(player_data["role"]),
+            allegiance=Allegiance(player_data["allegiance"]),
+            alive=player_data["alive"],
+            was_last_engineer=player_data["was_last_engineer"],
+        )
 
     def _create_players(self, config: GameConfig) -> list[Player]:
         """Create players with appropriate role assignments."""
@@ -385,6 +496,125 @@ class GameEngine:
 
         return kwargs
 
+    # Recovery and Management Methods
+
+    async def recover_interrupted_game(self, game_id: str) -> dict[str, Any]:
+        """
+        Recover a game that was interrupted during execution.
+
+        Returns a dictionary with recovery information:
+        - success: bool indicating if recovery was successful
+        - recovery_type: type of recovery performed
+        - last_valid_turn: the turn number we recovered to
+        - incomplete_actions: number of incomplete actions cleaned up
+        - error: error message if recovery failed
+        """
+        try:
+            async with get_async_session() as session:
+                # Analyze the failure type
+                failure_analysis = await RecoveryOperations.analyze_failure_type(
+                    session, game_id
+                )
+
+                # Mark incomplete actions as failed
+                incomplete_count = (
+                    await RecoveryOperations.mark_incomplete_actions_failed(
+                        session, game_id, "Recovered from interruption"
+                    )
+                )
+
+                # Get the last consistent state
+                last_state_info = await RecoveryOperations.get_last_consistent_state(
+                    session, game_id
+                )
+
+                if last_state_info:
+                    turn_number, state_data = last_state_info
+
+                    # Reconstruct the state from JSON data
+                    state = self._reconstruct_game_state(state_data, game_id)
+
+                    # Load the recovered state
+                    self._current_state = state
+                    self._game_id = game_id
+                    self.state_manager.save_state_snapshot(state)
+
+                    return {
+                        "success": True,
+                        "recovery_type": failure_analysis["type"].value,
+                        "last_valid_turn": turn_number,
+                        "incomplete_actions": incomplete_count,
+                        "error": None,
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "recovery_type": failure_analysis["type"].value,
+                        "last_valid_turn": 0,
+                        "incomplete_actions": incomplete_count,
+                        "error": "No consistent state found to recover to",
+                    }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "recovery_type": "unknown",
+                "last_valid_turn": 0,
+                "incomplete_actions": 0,
+                "error": f"Recovery failed: {str(e)}",
+            }
+
+    @staticmethod
+    async def find_interrupted_games() -> list[str]:
+        """
+        Find all games that were interrupted and need recovery.
+
+        Returns a list of game IDs that have incomplete actions.
+        """
+        async with get_async_session() as session:
+            return await RecoveryOperations.find_interrupted_games(session)
+
+    @staticmethod
+    async def analyze_game_failure(game_id: str) -> dict[str, Any]:
+        """
+        Analyze the type of failure for a specific game.
+
+        Returns detailed information about what went wrong and how to recover.
+        """
+        async with get_async_session() as session:
+            return await RecoveryOperations.analyze_failure_type(session, game_id)
+
+    async def restart_from_turn(self, game_id: str, turn_number: int) -> bool:
+        """
+        Restart a game from a specific turn number.
+
+        This loads the game state from that turn and allows continuation.
+        Returns True if successful, False if the turn doesn't exist.
+        """
+        return await self.load_game(game_id, turn_number)
+
+    async def create_checkpoint(self) -> str:
+        """
+        Create a checkpoint of the current game state.
+
+        Returns the checkpoint ID (state_id) for later recovery.
+        """
+        if not self._current_state or not self._game_id:
+            raise ValueError("No active game to checkpoint")
+
+        return await self.save_game()
+
+    async def restore_from_checkpoint(self, game_id: str, checkpoint_id: str) -> bool:
+        """
+        Restore a game from a specific checkpoint (state_id).
+
+        Note: This is a placeholder for future implementation where we can
+        load by state_id instead of just turn number.
+        """
+        # For now, we don't have state_id based loading implemented
+        # This would require extending the database operations
+        return False
+
 
 # Convenience functions for common operations
 async def create_game(
@@ -421,3 +651,75 @@ async def run_random_game(
     player_ids = [f"player_{i}" for i in range(player_count)]
     engine = await create_game(player_ids, seed, database_url)
     return await engine.simulate_to_completion()
+
+
+async def recover_game(game_id: str, database_url: str | None = None) -> GameEngine:
+    """
+    Convenience function to recover an interrupted game.
+
+    Args:
+        game_id: The ID of the game to recover
+        database_url: Optional database URL override (uses centralized config if None)
+
+    Returns:
+        GameEngine instance with the recovered game loaded
+
+    Raises:
+        ValueError: If recovery fails
+    """
+    engine = GameEngine(database_url=database_url)
+    await engine.init_database()
+
+    recovery_result = await engine.recover_interrupted_game(game_id)
+
+    if not recovery_result["success"]:
+        raise ValueError(f"Game recovery failed: {recovery_result['error']}")
+
+    return engine
+
+
+async def load_game(
+    game_id: str, turn: int | None = None, database_url: str | None = None
+) -> GameEngine:
+    """
+    Convenience function to load a game from the database.
+
+    Args:
+        game_id: The ID of the game to load
+        turn: Optional specific turn to load (loads latest if None)
+        database_url: Optional database URL override (uses centralized config if None)
+
+    Returns:
+        GameEngine instance with the loaded game
+
+    Raises:
+        ValueError: If loading fails
+    """
+    engine = GameEngine(database_url=database_url)
+    await engine.init_database()
+
+    success = await engine.load_game(game_id, turn)
+
+    if not success:
+        raise ValueError(
+            f"Failed to load game {game_id}" + (f" at turn {turn}" if turn else "")
+        )
+
+    return engine
+
+
+async def find_interrupted_games(database_url: str | None = None) -> list[str]:
+    """
+    Convenience function to find all interrupted games.
+
+    Args:
+        database_url: Optional database URL override (uses centralized config if None)
+
+    Returns:
+        List of game IDs that need recovery
+    """
+    # Initialize database if needed
+    engine = GameEngine(database_url=database_url)
+    await engine.init_database()
+
+    return await GameEngine.find_interrupted_games()

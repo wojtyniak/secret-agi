@@ -97,7 +97,7 @@ class GameOperations:
     @staticmethod
     async def load_game_state(
         session: AsyncSession, game_id: str, turn: int | None = None
-    ) -> GameState | None:
+    ) -> dict[str, Any] | None:
         """Load a game state from the database (only for non-deleted games)."""
         # First check if the game exists and is not deleted
         game_query = select(Game).where(
@@ -400,7 +400,7 @@ class RecoveryOperations:
     @staticmethod
     async def get_last_consistent_state(
         session: AsyncSession, game_id: str
-    ) -> tuple[int, GameState] | None:
+    ) -> tuple[int, dict[str, Any]] | None:
         """Get the last game state that has complete corresponding actions and events."""
         # Find the highest turn number with both state and valid actions
         query = (
@@ -426,8 +426,8 @@ class RecoveryOperations:
 
         if row:
             turn_number, state_data = row
-            state = GameState(**state_data)
-            return turn_number, state
+            # Return raw state data for reconstruction by the game engine
+            return turn_number, state_data
 
         return None
 
