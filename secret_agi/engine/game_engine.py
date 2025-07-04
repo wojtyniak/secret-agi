@@ -1,5 +1,6 @@
 """Async GameEngine with database persistence for Secret AGI."""
 
+import logging
 import random
 import uuid
 from typing import Any
@@ -23,6 +24,8 @@ from .models import (
 )
 from .rules import GameRules
 
+logger = logging.getLogger(__name__)
+
 
 class GameEngine:
     """
@@ -30,17 +33,19 @@ class GameEngine:
     Manages game lifecycle, state, and player actions with full persistence.
     """
 
-    def __init__(self, database_url: str | None = None) -> None:
+    def __init__(self, database_url: str | None = None, debug_mode: bool = False) -> None:
         """
         Initialize GameEngine with optional database URL override.
 
         Args:
             database_url: Optional database URL. If not provided, uses centralized configuration.
+            debug_mode: Enable debug logging for agent decision tracking
         """
         self.state_manager = GameStateManager()
         self._current_state: GameState | None = None
         self._game_id: str | None = None
         self._database_url = database_url
+        self._debug_mode = debug_mode
 
     async def init_database(self, database_url: str | None = None) -> None:
         """Initialize the database connection using centralized configuration."""
@@ -290,6 +295,15 @@ class GameEngine:
         if not self._current_state or not self._game_id:
             return GameUpdate(success=False, error="No active game")
 
+        # Debug logging: before action
+        if self._debug_mode:
+            logger.info(
+                f"🎯 {player_id} attempting {action.value} with params {kwargs} "
+                f"(Turn {self._current_state.turn_number + 1}, "
+                f"Phase: {self._current_state.current_phase.value}, "
+                f"C:{self._current_state.capability}, S:{self._current_state.safety})"
+            )
+
         # Increment turn number
         self._current_state.turn_number += 1
         turn_number = self._current_state.turn_number
@@ -298,6 +312,27 @@ class GameEngine:
         result = ActionProcessor.process_action(
             self._current_state, player_id, action, **kwargs
         )
+
+        # Debug logging: after action
+        if self._debug_mode:
+            if result.success:
+                new_state = result.game_state
+                if new_state:
+                    logger.info(
+                        f"✅ {player_id} action succeeded → "
+                        f"Phase: {new_state.current_phase.value}, "
+                        f"C:{new_state.capability}, S:{new_state.safety}"
+                    )
+
+                    # Log any significant events
+                    if result.events:
+                        for event in result.events:
+                            if event.type.value in ['game_ended', 'paper_published', 'power_activated']:
+                                logger.info(f"📡 Event: {event.type.value} - {event.data}")
+                else:
+                    logger.info(f"✅ {player_id} action succeeded")
+            else:
+                logger.warning(f"❌ {player_id} action failed: {result.error}")
 
         # Save to database
         if self._game_id:
@@ -400,6 +435,75 @@ class GameEngine:
         Should not be used by players during actual gameplay.
         """
         return self.state_manager.get_current_state()
+
+    def debug_get_player_info(self, player_id: str) -> dict[str, Any]:
+        """
+        Get debug information about a specific player.
+        Useful for understanding what a player knows and can do.
+        """
+        if not self._current_state:
+            return {}
+
+        player = self._current_state.get_player_by_id(player_id)
+        if not player:
+            return {"error": f"Player {player_id} not found"}
+
+        valid_actions = self.get_valid_actions(player_id)
+        filtered_state = EventFilter.filter_game_state_for_player(self._current_state, player_id)
+
+        return {
+            "player_id": player_id,
+            "role": player.role.value,
+            "allegiance": player.allegiance.value,
+            "alive": player.alive,
+            "was_last_engineer": player.was_last_engineer,
+            "valid_actions": [a.value for a in valid_actions],
+            "knows_about": {
+                "own_role": True,
+                "capability": filtered_state.capability,
+                "safety": filtered_state.safety,
+                "current_phase": filtered_state.current_phase.value,
+                "current_director": filtered_state.current_director,
+                "failed_proposals": filtered_state.failed_proposals,
+                "deck_size": len(filtered_state.deck),
+                "knows_allies": len([p for p in filtered_state.players 
+                                   if p.id != player_id and 
+                                   p.role in [Role.ACCELERATIONIST, Role.AGI] and
+                                   player.role in [Role.ACCELERATIONIST, Role.AGI]]),
+            },
+            "can_see_cards": {
+                "director_cards": len(filtered_state.director_cards) if filtered_state.director_cards else 0,
+                "engineer_cards": len(filtered_state.engineer_cards) if filtered_state.engineer_cards else 0,
+            }
+        }
+
+    def debug_log_game_summary(self) -> None:
+        """Log a summary of the current game state for debugging."""
+        if not self._current_state or not self._debug_mode:
+            return
+
+        logger.info("🎮 === GAME STATE SUMMARY ===")
+        logger.info(f"   Turn: {self._current_state.turn_number}")
+        logger.info(f"   Phase: {self._current_state.current_phase.value}")
+        logger.info(f"   Scores: C={self._current_state.capability}, S={self._current_state.safety}")
+        logger.info(f"   Director: {self._current_state.current_director}")
+        logger.info(f"   Failed Proposals: {self._current_state.failed_proposals}")
+        logger.info(f"   Deck: {len(self._current_state.deck)} cards remaining")
+        
+        # Log player info
+        for player in self._current_state.players:
+            if player.alive:
+                valid_actions = self.get_valid_actions(player.id)
+                logger.info(
+                    f"   Player {player.id}: {player.role.value}, "
+                    f"Actions: {[a.value for a in valid_actions[:3]]}{'...' if len(valid_actions) > 3 else ''}"
+                )
+        
+        logger.info("🎮 === END SUMMARY ===")
+
+    def set_debug_mode(self, enabled: bool) -> None:
+        """Enable or disable debug mode."""
+        self._debug_mode = enabled
 
     async def simulate_to_completion(self, max_turns: int = 1000) -> dict[str, Any]:
         """

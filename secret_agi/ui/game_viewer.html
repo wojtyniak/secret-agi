@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret AGI Game Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .game-controls {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        
+        button:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-bar {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .status {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        .game-state {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .game-state h3 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .metric-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .capability {
+            color: #e74c3c;
+        }
+        
+        .safety {
+            color: #27ae60;
+        }
+        
+        .log-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .log-entry {
+            margin: 8px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+        }
+        
+        .log-entry:nth-child(even) {
+            background: #e9ecef;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 Secret AGI Game Viewer</h1>
+            <p>Monitor and control Secret AGI games in real-time</p>
+        </div>
+        
+        <div class="game-controls">
+            <div class="button-group">
+                <button onclick="startGame()" id="start-btn">
+                    <span id="start-text">Start New Game (5 Random Players)</span>
+                    <span id="start-loading" class="loading hidden"></span>
+                </button>
+                <button onclick="refreshStatus()">Refresh Status</button>
+                <button onclick="toggleLogs()">Toggle Game Log</button>
+                <button onclick="clearLogs()">Clear Logs</button>
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status info" id="game-status">
+                <strong>Status:</strong> <span>No active game</span>
+            </div>
+        </div>
+        
+        <div id="game-info" class="game-state hidden">
+            <h3>🎯 Current Game State</h3>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-label">Capability</div>
+                    <div class="metric-value capability" id="capability-value">-</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Safety</div>
+                    <div class="metric-value safety" id="safety-value">-</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Turn</div>
+                    <div class="metric-value" id="turn-value">-</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Status</div>
+                    <div class="metric-value" id="status-value">-</div>
+                </div>
+            </div>
+            <div id="game-details"></div>
+        </div>
+        
+        <div id="game-log" class="log-container hidden">
+            <h3>📜 Game Log</h3>
+            <div id="log-entries">
+                <p style="text-align: center; color: #666; padding: 20px;">No log entries available</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let gamePolling = null;
+        let isGameRunning = false;
+        
+        const API_BASE = window.location.origin; // Assumes API is on same host
+        
+        async function startGame() {
+            const startBtn = document.getElementById('start-btn');
+            const startText = document.getElementById('start-text');
+            const startLoading = document.getElementById('start-loading');
+            
+            try {
+                // Show loading state
+                startBtn.disabled = true;
+                startText.classList.add('hidden');
+                startLoading.classList.remove('hidden');
+                
+                const response = await fetch(`${API_BASE}/start-game`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        player_count: 5, 
+                        use_debug: true 
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateStatus('Game starting...', 'info');
+                    isGameRunning = true;
+                    startPolling();
+                } else {
+                    updateStatus(`Failed to start game: ${result.message}`, 'error');
+                }
+                
+            } catch (error) {
+                updateStatus(`Error starting game: ${error.message}`, 'error');
+            } finally {
+                // Reset button state
+                startBtn.disabled = false;
+                startText.classList.remove('hidden');
+                startLoading.classList.add('hidden');
+            }
+        }
+        
+        async function refreshStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/game-state`);
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    displayGameState(result.data);
+                } else {
+                    updateStatus('No active game', 'info');
+                    document.getElementById('game-info').classList.add('hidden');
+                    isGameRunning = false;
+                }
+            } catch (error) {
+                console.error('Error refreshing status:', error);
+                updateStatus('Error connecting to server', 'error');
+            }
+        }
+        
+        async function loadGameLog() {
+            try {
+                const response = await fetch(`${API_BASE}/game-log`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayGameLog(result.data || []);
+                }
+            } catch (error) {
+                console.error('Error loading game log:', error);
+            }
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusElement = document.getElementById('game-status');
+            statusElement.className = `status ${type}`;
+            statusElement.innerHTML = `<strong>Status:</strong> <span>${message}</span>`;
+        }
+        
+        function displayGameState(gameData) {
+            const isCompleted = gameData.completed;
+            const statusText = isCompleted ? 'Game completed' : 'Game in progress';
+            updateStatus(statusText, isCompleted ? 'success' : 'info');
+            
+            // Update metrics
+            document.getElementById('capability-value').textContent = gameData.final_capability || 0;
+            document.getElementById('safety-value').textContent = gameData.final_safety || 0;
+            document.getElementById('turn-value').textContent = gameData.total_turns || 0;
+            document.getElementById('status-value').textContent = isCompleted ? 'Completed' : 'Running';
+            
+            // Update details
+            const details = `
+                <div style="margin-top: 15px;">
+                    <p><strong>Game ID:</strong> <code>${gameData.game_id || 'Unknown'}</code></p>
+                    ${gameData.winners ? `<p><strong>Winners:</strong> <span style="color: #28a745; font-weight: bold;">${gameData.winners.join(', ')}</span></p>` : ''}
+                    <p><strong>Completion Rate:</strong> ${gameData.max_turns_reached ? 'Stopped (max turns)' : 'Normal'}</p>
+                </div>
+            `;
+            
+            document.getElementById('game-details').innerHTML = details;
+            document.getElementById('game-info').classList.remove('hidden');
+            
+            // Stop polling if game is complete
+            if (isCompleted && gamePolling) {
+                clearInterval(gamePolling);
+                gamePolling = null;
+                isGameRunning = false;
+            }
+        }
+        
+        function displayGameLog(logData) {
+            const logDiv = document.getElementById('log-entries');
+            
+            if (!logData || logData.length === 0) {
+                logDiv.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No log entries available</p>';
+                return;
+            }
+            
+            // Show most recent entries first, limit to 30
+            const recentEntries = logData.slice(-30).reverse();
+            
+            logDiv.innerHTML = recentEntries.map(entry => {
+                const timestamp = entry.timestamp || 'Unknown';
+                const message = entry.message || JSON.stringify(entry);
+                
+                return `
+                    <div class="log-entry">
+                        <strong>${timestamp}:</strong> ${message}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function toggleLogs() {
+            const logContainer = document.getElementById('game-log');
+            const isHidden = logContainer.classList.contains('hidden');
+            
+            if (isHidden) {
+                logContainer.classList.remove('hidden');
+                loadGameLog();
+            } else {
+                logContainer.classList.add('hidden');
+            }
+        }
+        
+        function clearLogs() {
+            const logDiv = document.getElementById('log-entries');
+            logDiv.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">Logs cleared</p>';
+        }
+        
+        function startPolling() {
+            if (gamePolling) clearInterval(gamePolling);
+            
+            gamePolling = setInterval(async () => {
+                await refreshStatus();
+                
+                // Also update logs if they're visible
+                const logContainer = document.getElementById('game-log');
+                if (!logContainer.classList.contains('hidden')) {
+                    await loadGameLog();
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+        
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshStatus();
+        });
+        
+        // Handle page visibility changes to pause/resume polling
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (gamePolling) {
+                    clearInterval(gamePolling);
+                    gamePolling = null;
+                }
+            } else if (isGameRunning) {
+                startPolling();
+            }
+        });
+    </script>
+</body>
+</html>
