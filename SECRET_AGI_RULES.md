@@ -250,3 +250,83 @@ getValidActions(playerId: string) -> [ActionType]
 **Testing**: The deterministic nature after setup makes unit testing straightforward. Focus on testing each phase transition and win condition checking.
 
 **AI Training**: The perfect information (except hidden roles) and deterministic gameplay make this ideal for reinforcement learning and game tree search algorithms.
+
+## IMPLEMENTATION CLARIFICATIONS & INTERPRETATIONS
+
+*These clarifications emerged during implementation and testing to resolve ambiguities in the original rules.*
+
+### Director Override Power (C=9) - Immediate vs Next Round
+**Rule**: "Director picks next Director (overrides clockwise rotation for one round)"
+
+**Implementation Interpretation**: The C=9 power **immediately changes** the current director rather than waiting for the next natural director advancement. This interpretation is based on:
+- Powers execute "immediately when Capability reaches level"
+- The phrase "for one round" refers to the duration of the override effect
+- Immediate director change provides more tactical value and clearer timing
+
+**Clarified Behavior**: When C=9 is reached, the current director immediately selects any alive player to become the new director, bypassing the normal clockwise rotation for this selection.
+
+### Veto System Timing and Mechanics
+**Rule**: "Veto decision happens before Engineer selects which paper to publish"
+
+**Implementation Interpretation**: The veto workflow follows this exact sequence:
+1. Director draws 3 papers from deck
+2. Director discards 1 paper to discard pile
+3. Engineer receives remaining 2 papers  
+4. **IF veto unlocked (C≥12)**: Engineer may declare veto before choosing which paper to publish
+5. **IF veto declared**: Director must respond "AGREE" or "REFUSE"
+6. **IF director agrees**: All 3 originally drawn papers go to discard, failed_proposals++, return to Phase 1
+7. **IF director refuses OR no veto declared**: Engineer selects 1 of their 2 papers to publish
+
+**Strategic Implications**: 
+- Veto can prevent unfavorable papers but costs a team proposal attempt
+- Director knows all 3 papers when deciding whether to agree to veto
+- Veto agreement wastes all research progress for that round
+
+### Power Trigger Timing and Multiple Activations
+**Rule**: "Powers execute immediately when Capability thresholds are reached"
+
+**Implementation Clarification**: 
+- A single paper can trigger multiple powers if it crosses multiple thresholds (e.g., C=8→11 triggers C=9, C=10, C=11)
+- All triggered powers execute in numerical order (C=9, then C=10, then C=11)
+- Powers that require director action (C=3,6,9,11) create immediate action opportunities
+- Automatic powers (C=10 AGI reveal, C=12 veto unlock) take effect permanently and immediately
+
+### Emergency Safety Persistence
+**Rule**: "Effect applies to the very next paper published, regardless of when"
+
+**Implementation Clarification**: Emergency Safety effects persist across:
+- Round boundaries (if no papers published between rounds)
+- Phase transitions  
+- Director changes
+- Team proposal failures
+- The effect only resets when a paper is actually published
+
+### Win Condition Checking Timing
+**Rule**: "Check win conditions after each paper published and after eliminations"
+
+**Implementation Clarification**: Win conditions are checked:
+- Immediately after paper capability/safety values are added to board
+- After power executions complete (in case powers affect win conditions)
+- After player eliminations via C=11 power
+- After auto-publish events
+- The check order determines priority when multiple conditions trigger simultaneously
+
+### AGI Engineer Win Condition Precision
+**Rule**: "AGI is elected Engineer when Capability ≥ 8"
+
+**Implementation Clarification**: This requires:
+- AGI player is **selected** as Engineer (team proposal passes), not just nominated
+- Capability ≥ 8 **when the team selection completes**
+- Game ends immediately upon team approval, before research phase begins
+- This prevents AGI from being "discovered" during the research phase
+
+### Information Visibility and Allegiance Cards
+**Rule**: "Allegiance cards show 'Safety' or 'Acceleration' (AGI shows 'Acceleration')"
+
+**Implementation Clarification**:
+- AGI players have `role: AGI` but `allegiance: ACCELERATION` 
+- Power-based allegiance viewing reveals "Acceleration" for AGI players
+- Players cannot distinguish AGI from Accelerationists through allegiance viewing alone
+- This maintains AGI's cover until C=10 forced revelation
+
+These clarifications ensure consistent implementation and help players understand the precise timing and interactions of complex game mechanics.

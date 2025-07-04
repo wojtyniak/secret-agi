@@ -170,7 +170,7 @@ Key tables include:
 - **Rules Engine**: Win conditions, powers, emergency safety, veto system
 - **Player Interface**: Async base class with RandomPlayer implementation
 - **Testing Suite**: 116 comprehensive unit and integration tests (100% passing)
-- **Game Validation**: Automated completeness testing with 72-100% success rate
+- **Game Validation**: Automated completeness testing with 100% success rate
 - **Type Safety**: Strict mypy configuration with 0 errors across entire codebase
 - **Code Quality**: Complete ruff linting and formatting pipeline
 - **Development Tooling**: Justfile with database migration commands
@@ -224,3 +224,5 @@ The async game engine and database system are fully production-ready with:
 ## Development Memories
 
 - Always use jj to set commit messages. Never output them as text. Don't add yourself (Claude) to commit message or a a co-author.
+- I feel we're complicating our life by adding new features before all tests are passing. Make sure all tests are passing after every time you make changes
+- **IMPORTANT**: ALWAYS use jj (Jujutsu) for version control operations, NEVER git. This is a jj repository.

@@ -24,26 +24,30 @@ class GameRules:
         4. Simultaneous conditions: Accelerationists/AGI win
         """
 
-        # Check if AGI is eliminated
+        # Collect all triggered win conditions
+        safety_wins = []
+        evil_wins = []
+
+        # Check if AGI is eliminated (immediate Safety win, no simultaneity possible)
         agi_player = GameRules._find_agi_player(state)
         if agi_player and not agi_player.alive:
             return True, [Role.SAFETY]
 
         # Check Safety win conditions
         if state.capability == 10 and state.safety >= state.capability:
-            return True, [Role.SAFETY]
+            safety_wins.append("safety_at_capability_10")
 
         if state.safety >= 15:
-            return True, [Role.SAFETY]
+            safety_wins.append("safety_reaches_15")
 
         # Check Accelerationist/AGI win conditions
         if state.capability >= 15 and state.safety < 10:
-            return True, [Role.ACCELERATIONIST, Role.AGI]
+            evil_wins.append("capability_15_safety_under_10")
 
         if state.capability - state.safety >= 6:
-            return True, [Role.ACCELERATIONIST, Role.AGI]
+            evil_wins.append("capability_minus_safety_6_or_more")
 
-        # Check AGI Engineer win condition
+        # Check AGI Engineer win condition (immediate Evil win, no simultaneity)
         if (
             state.capability >= 8
             and state.nominated_engineer_id
@@ -56,9 +60,20 @@ class GameRules:
         # Check deck exhaustion
         if len(state.deck) == 0:
             if state.safety >= state.capability:
-                return True, [Role.SAFETY]
+                safety_wins.append("deck_exhaustion_safety_wins")
             else:
-                return True, [Role.ACCELERATIONIST, Role.AGI]
+                evil_wins.append("deck_exhaustion_evil_wins")
+
+        # Apply simultaneity rule: if both sides have win conditions, Evil wins
+        if safety_wins and evil_wins:
+            return True, [Role.ACCELERATIONIST, Role.AGI]
+
+        # Single-sided wins
+        if safety_wins:
+            return True, [Role.SAFETY]
+
+        if evil_wins:
+            return True, [Role.ACCELERATIONIST, Role.AGI]
 
         return False, []
 
