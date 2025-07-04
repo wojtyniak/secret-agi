@@ -11,7 +11,8 @@ from typing import Any
 from sqlalchemy import and_, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..engine.models import ActionType, GameConfig, GameState
+# if TYPE_CHECKING:
+#     from ..engine.models import GameConfig
 from .enums import GameStatus, RecoveryType
 from .models import (
     Action,
@@ -48,7 +49,7 @@ class GameOperations:
         return data
 
     @staticmethod
-    async def create_game(session: AsyncSession, config: GameConfig) -> str:
+    async def create_game(session: AsyncSession, config: Any) -> str:
         """Create a new game in the database."""
         game_id = str(uuid.uuid4())
 
@@ -67,7 +68,7 @@ class GameOperations:
 
     @staticmethod
     async def save_game_state(
-        session: AsyncSession, game_id: str, turn: int, state: GameState
+        session: AsyncSession, game_id: str, turn: int, state: Any
     ) -> str:
         """Save a complete game state snapshot."""
         state_id = str(uuid.uuid4())
@@ -192,18 +193,21 @@ class GameOperations:
         game_id: str,
         turn: int,
         player_id: str,
-        action_type: ActionType,
+        action_type: Any,
         action_data: dict[str, Any],
     ) -> str:
         """Record an action attempt."""
         action_id = str(uuid.uuid4())
 
+        # Convert enum to string if needed
+        action_type_str = action_type.value if hasattr(action_type, 'value') else str(action_type)
+        
         action = Action(
             id=action_id,
             game_id=game_id,
             turn_number=turn,
             player_id=player_id,
-            action_type=action_type,
+            action_type=action_type_str,
             action_data=action_data,
             is_valid=None,  # Processing state
             created_at=datetime.now(UTC),
