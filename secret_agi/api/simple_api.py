@@ -222,9 +222,9 @@ async def start_game(request: GameRequest):
         # if hasattr(request, 'agent_types'):
         #     players = create_players_from_types(request.agent_types)
         
-        # Create orchestrator
+        # Create orchestrator with on-disk database for persistence
         current_orchestrator = SimpleOrchestrator(
-            database_url="sqlite:///:memory:",  # Use in-memory for web games
+            database_url="sqlite:///web_games.db",  # Use on-disk database for web games
             debug_mode=request.use_debug
         )
         
@@ -263,12 +263,130 @@ async def get_game_state():
 
 @app.get("/game-log", response_model=GameResponse)
 async def get_game_log():
-    """Get game log entries."""
-    return GameResponse(
-        success=True,
-        message="Game log retrieved",
-        data=game_log
-    )
+    """Get detailed game log entries from database."""
+    if not current_orchestrator or not current_game or "game_id" not in current_game:
+        return GameResponse(
+            success=True,
+            message="No active game",
+            data=[]
+        )
+    
+    try:
+        # Access database through the orchestrator's engine if available
+        if current_orchestrator and hasattr(current_orchestrator, '_engine'):
+            engine = current_orchestrator._engine
+            
+            # Use the orchestrator's database connection
+            from sqlalchemy.ext.asyncio import AsyncSession
+            from ..database.operations import GameOperations
+            
+            game_id = current_game["game_id"]
+            
+            # Create session from orchestrator's engine
+            async with AsyncSession(engine._engine) as session:
+                actions = await GameOperations.get_actions_for_game(session, game_id)
+                events = await GameOperations.get_events_for_game(session, game_id)
+                
+                # Debug logging
+                logger.info(f"Retrieved {len(actions)} actions and {len(events)} events for game {game_id}")
+        else:
+            # Fallback - no orchestrator available
+            actions = []
+            events = []
+            logger.warning("No orchestrator available for database access")
+        
+        # Create detailed log entries
+        detailed_log = []
+        
+        # Add game start
+        detailed_log.append({
+            "timestamp": "start",
+            "turn": 0,
+            "message": f"Game started with {len(current_game.get('player_ids', []))} players"
+        })
+        
+        # Combine and sort actions and events by turn number
+        all_entries = []
+        
+        # Add action entries
+        for action in actions:
+            status = "✅" if action.is_valid else "❌" if action.is_valid == False else "⏳"
+            message = f"{status} {action.player_id} → {action.action_type}"
+            
+            if action.action_data:
+                # Add relevant action data
+                if action.action_type == "nominate":
+                    message += f" (target: {action.action_data.get('target_id', 'unknown')})"
+                elif action.action_type in ["vote_team", "vote_emergency"]:
+                    message += f" ({'YES' if action.action_data.get('vote') else 'NO'})"
+                elif action.action_type in ["discard_paper", "publish_paper"]:
+                    message += f" (paper: {action.action_data.get('paper_id', 'unknown')})"
+                elif action.action_type == "use_power":
+                    message += f" (target: {action.action_data.get('target_id', 'unknown')})"
+                elif action.action_type == "declare_veto":
+                    message += " (veto declared)"
+                elif action.action_type == "respond_veto":
+                    response = "AGREE" if action.action_data.get('agree') else "REFUSE"
+                    message += f" ({response})"
+            
+            if action.error_message:
+                message += f" - ERROR: {action.error_message}"
+                
+            all_entries.append({
+                "timestamp": f"turn_{action.turn_number}",
+                "turn": action.turn_number,
+                "message": message,
+                "player": action.player_id,
+                "action": action.action_type,
+                "valid": action.is_valid,
+                "type": "action"
+            })
+        
+        # Add significant events
+        for event in events:
+            if event.event_type in ["paper_published", "power_triggered", "game_ended", "player_eliminated"]:
+                message = f"📡 {event.event_type.replace('_', ' ').title()}"
+                
+                if event.event_data:
+                    if event.event_type == "paper_published":
+                        paper = event.event_data.get('paper', {})
+                        message += f" - Paper: C+{paper.get('capability', 0)}, S+{paper.get('safety', 0)}"
+                    elif event.event_type == "power_triggered":
+                        message += f" - {event.event_data.get('power_type', 'unknown')} power activated"
+                    elif event.event_type == "game_ended":
+                        winners = event.event_data.get('winners', [])
+                        message += f" - Winners: {', '.join(winners)}"
+                    elif event.event_type == "player_eliminated":
+                        message += f" - {event.event_data.get('target_id', 'unknown')} eliminated"
+                
+                all_entries.append({
+                    "timestamp": f"turn_{event.turn_number}",
+                    "turn": event.turn_number,
+                    "message": message,
+                    "event_type": event.event_type,
+                    "type": "event"
+                })
+        
+        # Sort by turn number, then by type (actions before events)
+        all_entries.sort(key=lambda x: (x.get('turn', 0), x.get('type') == 'event'))
+        
+        # Add to detailed log
+        detailed_log.extend(all_entries)
+        
+        return GameResponse(
+            success=True,
+            message="Detailed game log retrieved",
+            data=detailed_log
+        )
+        
+    except Exception as e:
+        logger.error(f"Error retrieving detailed game log: {e}")
+        # Fallback to simple log
+        return GameResponse(
+            success=True,
+            message="Game log retrieved (fallback)",
+            data=game_log
+        )
 
 
 @app.get("/health")
@@ -291,8 +409,13 @@ async def run_game_background(players):
         # Run the game
         result = await current_orchestrator.run_game(players)
         
-        # Update global state with final result
+        # Update global state with final result including game_id
         current_game.update(result)
+        
+        # Capture game_id from orchestrator if available
+        if hasattr(current_orchestrator, '_game_id') and current_orchestrator._game_id:
+            current_game["game_id"] = current_orchestrator._game_id
+            current_game["player_ids"] = [p.player_id for p in players]
         
         # Log game end
         game_log.append({

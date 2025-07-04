@@ -321,6 +321,30 @@ class GameOperations:
         await session.commit()
         return metric_id
 
+    @staticmethod
+    async def get_actions_for_game(session: AsyncSession, game_id: str) -> list[Action]:
+        """Get all actions for a specific game."""
+        query = (
+            select(Action)  # type: ignore
+            .where(Action.game_id == game_id)  # type: ignore
+            .order_by(Action.turn_number, Action.created_at)  # type: ignore
+        )
+        
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_events_for_game(session: AsyncSession, game_id: str) -> list[Event]:
+        """Get all events for a specific game."""
+        query = (
+            select(Event)  # type: ignore
+            .where(Event.game_id == game_id)  # type: ignore
+            .order_by(Event.turn_number, Event.created_at)  # type: ignore
+        )
+        
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
 
 class RecoveryOperations:
     """Database operations for game recovery."""
