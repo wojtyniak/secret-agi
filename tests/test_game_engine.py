@@ -361,7 +361,9 @@ class TestConvenienceFunctions:
     async def test_create_game_function(self):
         """Test create_game convenience function."""
         player_ids = ["p1", "p2", "p3", "p4", "p5"]
-        engine = await create_game(player_ids, seed=42, database_url="sqlite:///:memory:")
+        engine = await create_game(
+            player_ids, seed=42, database_url="sqlite:///:memory:"
+        )
 
         assert isinstance(engine, GameEngine)
         assert engine._current_state is not None
@@ -370,7 +372,9 @@ class TestConvenienceFunctions:
     @pytest.mark.asyncio
     async def test_run_random_game_function(self):
         """Test run_random_game convenience function."""
-        result = await run_random_game(player_count=5, seed=42, database_url="sqlite:///:memory:")
+        result = await run_random_game(
+            player_count=5, seed=42, database_url="sqlite:///:memory:"
+        )
 
         assert "completed" in result
         assert "turns_taken" in result
@@ -384,7 +388,9 @@ class TestConvenienceFunctions:
     async def test_run_random_game_different_sizes(self):
         """Test run_random_game with different player counts."""
         for count in [5, 7, 10]:
-            result = await run_random_game(player_count=count, seed=42, database_url="sqlite:///:memory:")
+            result = await run_random_game(
+                player_count=count, seed=42, database_url="sqlite:///:memory:"
+            )
 
             assert result["final_stats"]["player_count"] == count
             assert result["turns_taken"] > 0

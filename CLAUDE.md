@@ -220,3 +220,7 @@ The async game engine and database system are fully production-ready with:
 - Performance analysis and metrics collection
 - Integration with external systems and APIs
 - Real-time game state persistence and recovery
+
+## Development Memories
+
+- Always use jj to set commit messages. Never output them as text. Don't add yourself (Claude) to commit message or a a co-author.

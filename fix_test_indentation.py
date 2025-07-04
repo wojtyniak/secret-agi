@@ -10,26 +10,31 @@ def fix_indentation_errors(content: str) -> str:
 
     # Fix indentation issues in for loops
     content = re.sub(
-        r'(\s+for \w+ in [^:]+:)\s*\n(\s+engine = GameEngine\([^)]+\))\s*\n\s*await engine\.init_database\(\)',
+        r"(\s+for \w+ in [^:]+:)\s*\n(\s+engine = GameEngine\([^)]+\))\s*\n\s*await engine\.init_database\(\)",
         r'\1\n            engine = GameEngine(database_url="sqlite:///:memory:")\n            await engine.init_database()',
-        content
+        content,
     )
 
     # Fix misaligned lines after for loops
     content = re.sub(
-        r'(\s+)engine = GameEngine\([^)]+\)\s*\n\s*await engine\.init_database\(\)\s*\n(\s+)config =',
+        r"(\s+)engine = GameEngine\([^)]+\)\s*\n\s*await engine\.init_database\(\)\s*\n(\s+)config =",
         r'\1engine = GameEngine(database_url="sqlite:///:memory:")\n\1await engine.init_database()\n\1config =',
-        content
+        content,
     )
 
     # Fix database URL format
-    content = re.sub(r'database_url=":memory:"', 'database_url="sqlite:///:memory:"', content)
+    content = re.sub(
+        r'database_url=":memory:"', 'database_url="sqlite:///:memory:"', content
+    )
 
     # Fix missing imports
-    if 'import pytest' in content and 'import pytest_asyncio' not in content:
-        content = content.replace('import pytest', 'import pytest\nimport pytest_asyncio')
+    if "import pytest" in content and "import pytest_asyncio" not in content:
+        content = content.replace(
+            "import pytest", "import pytest\nimport pytest_asyncio"
+        )
 
     return content
+
 
 def fix_test_file(file_path: Path) -> None:
     """Fix a test file."""
@@ -40,6 +45,7 @@ def fix_test_file(file_path: Path) -> None:
 
     file_path.write_text(content)
     print(f"Fixed {file_path}")
+
 
 def main():
     """Main function."""
@@ -53,6 +59,6 @@ def main():
         if test_file.exists():
             fix_test_file(test_file)
 
+
 if __name__ == "__main__":
     main()
-

@@ -294,9 +294,7 @@ class TestGameScenarios:
                 action, kwargs = players[acting_player].choose_action(
                     state, valid_actions
                 )
-                result = await engine.perform_action(
-                    acting_player, action, **kwargs
-                )
+                result = await engine.perform_action(acting_player, action, **kwargs)
 
                 if not result.success:
                     # Fallback to observe

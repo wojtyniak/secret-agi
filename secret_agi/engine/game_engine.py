@@ -4,7 +4,9 @@ import random
 import uuid
 from typing import Any
 
-from ..database import GameOperations, get_async_session, init_database
+from ..database.connection import get_async_session, init_database
+from ..database.operations import GameOperations
+from ..settings import get_database_url
 from .actions import ActionProcessor, ActionValidator
 from .events import EventFilter, GameStateManager
 from .models import (
@@ -29,14 +31,28 @@ class GameEngine:
     """
 
     def __init__(self, database_url: str | None = None) -> None:
+        """
+        Initialize GameEngine with optional database URL override.
+
+        Args:
+            database_url: Optional database URL. If not provided, uses centralized configuration.
+        """
         self.state_manager = GameStateManager()
         self._current_state: GameState | None = None
         self._game_id: str | None = None
         self._database_url = database_url
 
     async def init_database(self, database_url: str | None = None) -> None:
-        """Initialize the database connection."""
-        await init_database(database_url or self._database_url)
+        """Initialize the database connection using centralized configuration."""
+        # Use provided URL, instance URL, or centralized configuration
+        url = database_url or self._database_url
+        if url is None:
+            url = get_database_url()
+        else:
+            # Apply the same URL conversion logic as centralized configuration
+            if url.startswith("sqlite://"):
+                url = url.replace("sqlite://", "sqlite+aiosqlite://")
+        await init_database(url)
 
     async def create_game(self, config: GameConfig) -> str:
         """
@@ -370,16 +386,21 @@ class GameEngine:
         return kwargs
 
 
-
 # Convenience functions for common operations
 async def create_game(
     player_ids: list[str], seed: int | None = None, database_url: str | None = None
 ) -> GameEngine:
     """
-    Convenience function to create a new async game.
+    Convenience function to create a new async game with centralized configuration.
+
+    Args:
+        player_ids: List of player identifiers
+        seed: Optional random seed for reproducible games
+        database_url: Optional database URL override (uses centralized config if None)
     """
     config = GameConfig(player_count=len(player_ids), player_ids=player_ids, seed=seed)
 
+    # Always use centralized configuration system to ensure proper URL handling
     engine = GameEngine(database_url=database_url)
     await engine.init_database()
     await engine.create_game(config)
@@ -390,10 +411,13 @@ async def run_random_game(
     player_count: int = 5, seed: int | None = None, database_url: str | None = None
 ) -> dict[str, Any]:
     """
-    Convenience function to run a complete random async game.
+    Convenience function to run a complete random async game with centralized configuration.
+
+    Args:
+        player_count: Number of players (5-10)
+        seed: Optional random seed for reproducible games
+        database_url: Optional database URL override (uses centralized config if None)
     """
     player_ids = [f"player_{i}" for i in range(player_count)]
     engine = await create_game(player_ids, seed, database_url)
     return await engine.simulate_to_completion()
-
-

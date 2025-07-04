@@ -7,6 +7,7 @@ from alembic import context
 
 # Import all models to ensure they're registered with SQLModel
 from secret_agi.database.models import *  # noqa: F401,F403
+from secret_agi.settings import get_alembic_database_url
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -40,7 +41,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    # Use centralized configuration for database URL
+    url = config.get_main_option("sqlalchemy.url") or get_alembic_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -59,8 +61,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Ensure database URL is set from centralized configuration
+    config_section = config.get_section(config.config_ini_section, {})
+    if "sqlalchemy.url" not in config_section:
+        config_section["sqlalchemy.url"] = get_alembic_database_url()
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        config_section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

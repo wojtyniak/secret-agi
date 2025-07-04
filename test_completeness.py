@@ -26,7 +26,9 @@ def test_game_completeness(num_games: int = 100, player_count: int = 5) -> bool:
 
         try:
             player_ids = [f"player_{j}" for j in range(player_count)]
-            engine = asyncio.run(create_game(player_ids, seed=i, database_url="sqlite:///:memory:"))
+            engine = asyncio.run(
+                create_game(player_ids, seed=i, database_url="sqlite:///:memory:")
+            )
             # Use higher turn limit for more reliable completion
             result = asyncio.run(engine.simulate_to_completion(max_turns=2000))
 

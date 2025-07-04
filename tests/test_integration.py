@@ -132,7 +132,9 @@ class TestCompleteGameFlow:
 
         # Any player can call emergency safety
         caller_id = engine._current_state.players[0].id
-        result = await engine.perform_action(caller_id, ActionType.CALL_EMERGENCY_SAFETY)
+        result = await engine.perform_action(
+            caller_id, ActionType.CALL_EMERGENCY_SAFETY
+        )
         assert result.success is True
         assert engine._current_state.emergency_safety_called is True
 
@@ -439,7 +441,9 @@ class TestRandomGameCompletion:
     @pytest.mark.asyncio
     async def test_single_random_game_completion(self):
         """Test that a single random game completes."""
-        result = await run_random_game(player_count=5, seed=42, database_url="sqlite:///:memory:")
+        result = await run_random_game(
+            player_count=5, seed=42, database_url="sqlite:///:memory:"
+        )
 
         assert result["completed"] is True
         assert result["turns_taken"] > 0
@@ -452,7 +456,9 @@ class TestRandomGameCompletion:
         results = []
 
         for seed in range(10):
-            result = await run_random_game(player_count=5, seed=seed, database_url="sqlite:///:memory:")
+            result = await run_random_game(
+                player_count=5, seed=seed, database_url="sqlite:///:memory:"
+            )
             results.append(result)
 
         # Most games should complete (allowing for some edge cases in random gameplay)
@@ -468,7 +474,9 @@ class TestRandomGameCompletion:
     async def test_different_player_count_completions(self):
         """Test game completion with different player counts."""
         for player_count in [5, 6, 7, 8, 9, 10]:
-            result = await run_random_game(player_count=player_count, seed=42, database_url="sqlite:///:memory:")
+            result = await run_random_game(
+                player_count=player_count, seed=42, database_url="sqlite:///:memory:"
+            )
 
             assert result["completed"] is True
             assert result["final_stats"]["player_count"] == player_count
@@ -483,7 +491,9 @@ class TestRandomGameCompletion:
         min_turns_seen = float("inf")
 
         for i in range(total_games):
-            result = await run_random_game(player_count=5, seed=i, database_url="sqlite:///:memory:")
+            result = await run_random_game(
+                player_count=5, seed=i, database_url="sqlite:///:memory:"
+            )
 
             if result["completed"]:
                 completed_games += 1
@@ -551,16 +561,24 @@ class TestSystemStress:
     async def test_edge_case_scenarios(self):
         """Test various edge case scenarios."""
         # Game with minimum players
-        result = await run_random_game(player_count=5, seed=1, database_url="sqlite:///:memory:")
+        result = await run_random_game(
+            player_count=5, seed=1, database_url="sqlite:///:memory:"
+        )
         assert result["completed"]
 
         # Game with maximum players
-        result = await run_random_game(player_count=10, seed=1, database_url="sqlite:///:memory:")
+        result = await run_random_game(
+            player_count=10, seed=1, database_url="sqlite:///:memory:"
+        )
         assert result["completed"]
 
         # Multiple games with same seed (should be deterministic)
-        result1 = await run_random_game(player_count=5, seed=123, database_url="sqlite:///:memory:")
-        result2 = await run_random_game(player_count=5, seed=123, database_url="sqlite:///:memory:")
+        result1 = await run_random_game(
+            player_count=5, seed=123, database_url="sqlite:///:memory:"
+        )
+        result2 = await run_random_game(
+            player_count=5, seed=123, database_url="sqlite:///:memory:"
+        )
 
         # Results should be identical with same seed
         assert result1["winners"] == result2["winners"]
