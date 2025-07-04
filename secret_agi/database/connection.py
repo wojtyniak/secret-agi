@@ -40,15 +40,37 @@ async def init_database(database_url: str | None = None, echo: bool = False) -> 
         bind=_engine, class_=AsyncSession, expire_on_commit=False
     )
 
-    # For in-memory databases, create tables directly since Alembic won't run
-    if ":memory:" in database_url:
-        from sqlmodel import SQLModel
+    # Create tables automatically if they don't exist
+    # This handles in-memory databases and new persistent databases
+    from sqlmodel import SQLModel
+    from sqlalchemy import text
 
-        # Import models to register them with SQLModel
-        from . import models  # noqa: F401
+    # Import models to register them with SQLModel
+    from . import models  # noqa: F401
 
-        async with _engine.begin() as conn:
-            await conn.run_sync(SQLModel.metadata.create_all)
+    try:
+        # Check if tables exist by looking for the games table
+        async with _engine.connect() as conn:
+            result = await conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='games'")
+            )
+            tables_exist = result.fetchone() is not None
+
+        if not tables_exist:
+            logger.info("Tables not found, creating database schema...")
+            # NOTE: For production databases with existing data, always backup the database
+            # file before running migrations or schema changes
+            async with _engine.begin() as conn:
+                await conn.run_sync(SQLModel.metadata.create_all)
+            logger.info("Database tables created successfully")
+        else:
+            logger.debug("Database tables already exist")
+    except Exception as e:
+        logger.warning(f"Could not check/create tables: {e}")
+        # For in-memory or other cases, try to create anyway
+        if ":memory:" in database_url:
+            async with _engine.begin() as conn:
+                await conn.run_sync(SQLModel.metadata.create_all)
 
     logger.info(f"Database initialized with URL: {database_url}")
 
