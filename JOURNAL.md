@@ -1,5 +1,46 @@
 # Development Journal - Secret AGI Game Engine
 
+## Game Completion Bug Investigation (2025-07-04)
+
+Successfully identified the root cause of incomplete 5-player games that only complete 72-85% instead of expected 95%+.
+
+### Key Findings:
+
+**Problem Pattern**: All failed games end with exactly 2 cards remaining in deck and stuck in TeamProposal phase, not Research phase.
+
+**Initial Hypothesis (Wrong)**: Games fail because Director cannot draw 3 cards when only 2 remain.
+**Actual Issue**: Teams are not being formed when 2 cards remain - games get stuck in nomination/voting cycle.
+
+### Investigation Process:
+
+1. **Confirmed Bug**: 20-game test shows consistent 85% completion rate (3/20 failures)
+2. **Pattern Analysis**: All failures end with 2 cards in deck, TeamProposal phase, 40-52 turns
+3. **Research Phase Fix**: Added deck exhaustion win condition checks in `_start_research_phase()` - but this didn't fix the issue since games never reach Research phase
+4. **Root Cause**: Team formation process is failing when deck has 2 cards left
+
+### Technical Details:
+
+**Failed Game Pattern**:
+- Turn count: 40-52 turns
+- Deck size: 2 cards remaining  
+- Phase: TeamProposal (not Research)
+- Failed proposals: 0-2
+- All players alive
+
+**Code Changes Made**:
+- Fixed `_start_research_phase()` in actions.py to check deck exhaustion win conditions when deck becomes empty
+- This fixes a potential issue but doesn't address the actual bug
+
+### Next Steps:
+
+Need to investigate why team formation fails specifically when 2 cards remain:
+1. Check if nomination logic has deck-related conditions
+2. Verify vote validation doesn't have hidden deck checks  
+3. Examine if players are making different decisions near deck exhaustion
+4. Consider if the issue is in simulation_to_completion method action selection
+
+The issue appears to be in game logic preventing successful team formation when the deck is nearly empty, not in the Research phase card drawing mechanics.
+
 ## Fixed Failing Unit Tests (2025-07-03)
 
 Successfully resolved all failing unit tests by addressing several core issues:
