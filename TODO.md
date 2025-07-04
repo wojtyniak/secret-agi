@@ -132,6 +132,8 @@ The async game engine with database persistence is **production-ready** and supp
 - [x] ✅ **Game State Display**: Capability/safety meters, current phase, action history
 - [x] ✅ **Web Launch Script**: Created `launch_web_viewer.py` for easy startup
 - [x] ✅ **Pydantic Validation Fix**: Fixed game log endpoint data type error
+- [x] ✅ **Detailed Action Logging**: Enhanced game log with turn-by-turn action details from database
+- [x] ✅ **On-Disk Database**: Web games now use persistent `web_games.db` for session continuity
 
 ### 2.4 Agent Implementation (USER RESPONSIBILITY)
 **Location for User's Agent Implementation:**
@@ -218,6 +220,8 @@ secret_agi/
 - **Debug Infrastructure**: ✅ Comprehensive logging and agent decision visibility
 - **Agent Development**: ✅ Template, documentation, and testing pipeline ready
 - **Web Interface Bug Fixes**: ✅ Game log viewing now working properly
+- **Detailed Action Logging**: ✅ Turn-by-turn action history with parameters and validation status
+- **Persistent Web Games**: ✅ On-disk database for session continuity and game replay
 
 ### Phase 3 Goals 🎯 (Future)
 - **Chat System**: Send chat message action and communication phases

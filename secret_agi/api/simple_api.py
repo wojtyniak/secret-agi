@@ -67,7 +67,8 @@ async def root():
             .info { background-color: #d1ecf1; border: 1px solid #bee5eb; }
             button { padding: 10px 20px; margin: 5px; }
             .game-state { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .log-entry { margin: 5px 0; padding: 5px; background: #fff; border-left: 3px solid #007bff; }
+            .log-entry { margin: 3px 0; padding: 8px; background: #fff; border-left: 3px solid #007bff; border-radius: 3px; font-family: monospace; font-size: 13px; }
+            #log-entries { max-height: 400px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; }
         </style>
     </head>
     <body>
@@ -172,10 +173,28 @@ async def root():
                 logDiv.innerHTML = '';
                 
                 if (logData && logData.length > 0) {
-                    logData.slice(-20).forEach(entry => {  // Show last 20 entries
+                    // Show all entries, not just last 20
+                    logData.forEach(entry => {
                         const logEntry = document.createElement('div');
                         logEntry.className = 'log-entry';
-                        logEntry.innerHTML = `<strong>${entry.timestamp || 'Unknown'}:</strong> ${entry.message || JSON.stringify(entry)}`;
+                        
+                        // Enhanced display for detailed action logs
+                        if (entry.turn !== undefined && entry.turn > 0) {
+                            logEntry.innerHTML = `<strong>Turn ${entry.turn}:</strong> ${entry.message}`;
+                        } else {
+                            logEntry.innerHTML = `<strong>${entry.timestamp || 'Unknown'}:</strong> ${entry.message || JSON.stringify(entry)}`;
+                        }
+                        
+                        // Add special styling for different action types
+                        if (entry.message && entry.message.includes('✅')) {
+                            logEntry.style.borderLeft = '3px solid #28a745';  // Green for success
+                        } else if (entry.message && entry.message.includes('❌')) {
+                            logEntry.style.borderLeft = '3px solid #dc3545';  // Red for failure
+                        } else if (entry.message && entry.message.includes('📡')) {
+                            logEntry.style.borderLeft = '3px solid #ffc107';  // Yellow for events
+                            logEntry.style.backgroundColor = '#fff3cd';
+                        }
+                        
                         logDiv.appendChild(logEntry);
                     });
                 } else {
@@ -183,6 +202,9 @@ async def root():
                 }
                 
                 document.getElementById('game-log').style.display = 'block';
+                
+                // Scroll to bottom to show latest entries
+                logDiv.scrollTop = logDiv.scrollHeight;
             }
             
             function startPolling() {
