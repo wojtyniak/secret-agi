@@ -59,7 +59,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession]:
     if _async_session_maker is None:
         await init_database()
 
-    async with _async_session_maker() as session:
+    async with _async_session_maker() as session:  # type: ignore[misc]
         try:
             yield session
             await session.commit()

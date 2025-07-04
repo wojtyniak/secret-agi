@@ -17,13 +17,13 @@ from sqlmodel import select
 
 from .connection import get_async_session
 from .models import (
-    ActionRecord,
-    AgentMetrics,
+    Action,
+    AgentMetric,
     ChatMessage,
-    EventRecord,
+    Event,
     Game,
-    GameState,
-    Player,
+    GameStateDB,
+    PlayerDB,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,8 @@ class UnitOfWork:
     async def __aenter__(self) -> "UnitOfWork":
         """Enter async context and initialize session if needed."""
         if self._session is None:
-            self._session = await get_async_session().__anext__()
+            async_session_gen = get_async_session()
+            self._session = await async_session_gen.__anext__()  # type: ignore[attr-defined]
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -62,12 +63,12 @@ class UnitOfWork:
         try:
             if exc_type is None and not self._committed:
                 # No exception occurred, commit the transaction
-                await self._session.commit()
+                await self._session.commit()  # type: ignore[union-attr]
                 self._committed = True
                 logger.debug("Transaction committed successfully")
             else:
                 # Exception occurred or already committed, rollback
-                await self._session.rollback()
+                await self._session.rollback()  # type: ignore[union-attr]
                 if exc_type is not None:
                     logger.warning(
                         f"Transaction rolled back due to exception: {exc_val}"
@@ -98,70 +99,70 @@ class UnitOfWork:
     # Game operations
     async def create_game(self, game: Game) -> Game:
         """Create a new game record."""
-        self._session.add(game)
-        await self._session.flush()
-        await self._session.refresh(game)
+        self._session.add(game)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(game)  # type: ignore
         return game
 
     async def get_game(self, game_id: UUID) -> Game | None:
         """Get a game by ID."""
-        result = await self._session.execute(select(Game).where(Game.id == game_id))
+        result = await self._session.execute(select(Game).where(Game.id == game_id))  # type: ignore
         return result.scalar_one_or_none()
 
     async def update_game_status(
         self, game_id: UUID, status: str, winner: str | None = None
     ) -> None:
         """Update game status and winner."""
-        result = await self._session.execute(select(Game).where(Game.id == game_id))
+        result = await self._session.execute(select(Game).where(Game.id == game_id))  # type: ignore
         game = result.scalar_one_or_none()
         if game:
             game.status = status
             if winner is not None:
                 game.winner = winner
-            self._session.add(game)
+            self._session.add(game)  # type: ignore
 
     # Player operations
-    async def create_players(self, players: list[Player]) -> list[Player]:
+    async def create_players(self, players: list[PlayerDB]) -> list[PlayerDB]:
         """Create multiple player records."""
         for player in players:
-            self._session.add(player)
-        await self._session.flush()
+            self._session.add(player)  # type: ignore
+        await self._session.flush()  # type: ignore
         for player in players:
-            await self._session.refresh(player)
+            await self._session.refresh(player)  # type: ignore
         return players
 
     # Game state operations
-    async def save_game_state(self, game_state: GameState) -> GameState:
+    async def save_game_state(self, game_state: GameStateDB) -> GameStateDB:
         """Save a game state snapshot."""
-        self._session.add(game_state)
-        await self._session.flush()
-        await self._session.refresh(game_state)
+        self._session.add(game_state)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(game_state)  # type: ignore
         return game_state
 
-    async def get_latest_game_state(self, game_id: UUID) -> GameState | None:
+    async def get_latest_game_state(self, game_id: UUID) -> GameStateDB | None:
         """Get the latest game state for a game."""
-        result = await self._session.execute(
-            select(GameState)
-            .where(GameState.game_id == game_id)
-            .order_by(GameState.turn_number.desc())
+        result = await self._session.execute(  # type: ignore[union-attr]
+            select(GameStateDB)
+            .where(GameStateDB.game_id == game_id)
+            .order_by(GameStateDB.turn_number.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()
 
     # Action operations
-    async def record_action(self, action: ActionRecord) -> ActionRecord:
+    async def record_action(self, action: Action) -> Action:
         """Record a player action."""
-        self._session.add(action)
-        await self._session.flush()
-        await self._session.refresh(action)
+        self._session.add(action)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(action)  # type: ignore
         return action
 
     async def complete_action(
         self, action_id: UUID, success: bool, error_message: str | None = None
     ) -> None:
         """Mark an action as completed."""
-        result = await self._session.execute(
-            select(ActionRecord).where(ActionRecord.id == action_id)
+        result = await self._session.execute(  # type: ignore[union-attr]
+            select(Action).where(Action.id == action_id)
         )
         action = result.scalar_one_or_none()
         if action:
@@ -169,39 +170,39 @@ class UnitOfWork:
             action.success = success
             if error_message:
                 action.error_message = error_message
-            self._session.add(action)
+            self._session.add(action)  # type: ignore
 
     # Event operations
-    async def log_event(self, event: EventRecord) -> EventRecord:
+    async def log_event(self, event: Event) -> Event:
         """Log a game event."""
-        self._session.add(event)
-        await self._session.flush()
-        await self._session.refresh(event)
+        self._session.add(event)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(event)  # type: ignore
         return event
 
-    async def log_events(self, events: list[EventRecord]) -> list[EventRecord]:
+    async def log_events(self, events: list[Event]) -> list[Event]:
         """Log multiple game events."""
         for event in events:
-            self._session.add(event)
-        await self._session.flush()
+            self._session.add(event)  # type: ignore
+        await self._session.flush()  # type: ignore
         for event in events:
-            await self._session.refresh(event)
+            await self._session.refresh(event)  # type: ignore
         return events
 
     # Chat operations
     async def save_chat_message(self, message: ChatMessage) -> ChatMessage:
         """Save a chat message."""
-        self._session.add(message)
-        await self._session.flush()
-        await self._session.refresh(message)
+        self._session.add(message)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(message)  # type: ignore
         return message
 
     # Metrics operations
-    async def record_agent_metrics(self, metrics: AgentMetrics) -> AgentMetrics:
+    async def record_agent_metrics(self, metrics: AgentMetric) -> AgentMetric:
         """Record agent performance metrics."""
-        self._session.add(metrics)
-        await self._session.flush()
-        await self._session.refresh(metrics)
+        self._session.add(metrics)  # type: ignore
+        await self._session.flush()  # type: ignore
+        await self._session.refresh(metrics)  # type: ignore
         return metrics
 
 
@@ -239,14 +240,14 @@ class GameActionTransaction:
         self.uow = uow
         self.action_id: UUID | None = None
 
-    async def begin_action(self, action: ActionRecord) -> UUID:
+    async def begin_action(self, action: Action) -> UUID:
         """Begin recording a new action."""
         recorded_action = await self.uow.record_action(action)
-        self.action_id = recorded_action.id
-        return self.action_id
+        self.action_id = recorded_action.id  # type: ignore[assignment]
+        return self.action_id  # type: ignore[return-value]
 
     async def save_state_and_events(
-        self, game_state: GameState, events: list[EventRecord]
+        self, game_state: GameStateDB, events: list[Event]
     ) -> None:
         """Save the new game state and associated events."""
         await self.uow.save_game_state(game_state)
