@@ -246,3 +246,4 @@ The Secret AGI system is now fully production-ready with:
 - I feel we're complicating our life by adding new features before all tests are passing. Make sure all tests are passing after every time you make changes
 - **IMPORTANT**: ALWAYS use jj (Jujutsu) for version control operations, NEVER git. This is a jj repository.
 - Don't remove documentation files unless prompted to
+- Always write commit message after making changes if it's empty
