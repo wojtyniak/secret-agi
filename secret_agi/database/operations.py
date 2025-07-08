@@ -329,7 +329,7 @@ class GameOperations:
             .where(Action.game_id == game_id)  # type: ignore
             .order_by(Action.turn_number, Action.created_at)  # type: ignore
         )
-        
+
         result = await session.execute(query)
         return list(result.scalars().all())
 
@@ -341,7 +341,7 @@ class GameOperations:
             .where(Event.game_id == game_id)  # type: ignore
             .order_by(Event.turn_number, Event.created_at)  # type: ignore
         )
-        
+
         result = await session.execute(query)
         return list(result.scalars().all())
 

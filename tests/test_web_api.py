@@ -8,11 +8,9 @@ This test suite covers the errors found during web interface testing:
 4. SimpleOrchestrator property access
 """
 
-import asyncio
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,12 +39,12 @@ class TestWebAPIGameLog:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         db_url = f"sqlite+aiosqlite:///{db_path}"
-        
+
         # Initialize the test database
         await init_database(db_url)
-        
+
         yield db_url
-        
+
         # Cleanup
         Path(db_path).unlink(missing_ok=True)
 
@@ -64,7 +62,7 @@ class TestWebAPIGameLog:
                 game_metadata={"test": True}
             )
             session.add(game)
-            
+
             # Create some actions
             actions = [
                 Action(
@@ -97,7 +95,7 @@ class TestWebAPIGameLog:
             ]
             for action in actions:
                 session.add(action)
-                
+
             # Create some events
             events = [
                 Event(
@@ -117,9 +115,9 @@ class TestWebAPIGameLog:
             ]
             for event in events:
                 session.add(event)
-                
+
             await session.commit()
-            
+
         return "test-game-123"
 
     def test_game_log_endpoint_exists(self, client):
@@ -138,20 +136,20 @@ class TestWebAPIGameLog:
         original_game = current_game.copy() if current_game else {}
         original_orchestrator = current_orchestrator
         original_log = game_log.copy() if game_log else []
-        
+
         try:
             # Reset global state
             current_game.clear()
             current_orchestrator = None
             game_log.clear()
-            
+
             response = client.get("/game-log")
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
             assert "fallback" in data["message"].lower()
             assert isinstance(data["data"], list)
-            
+
         finally:
             # Restore original state
             current_game.update(original_game)
@@ -163,10 +161,10 @@ class TestWebAPIGameLog:
     async def test_game_operations_get_actions_for_game(self, sample_game_data):
         """Test GameOperations.get_actions_for_game method."""
         game_id = sample_game_data
-        
+
         async with get_async_session() as session:
             actions = await GameOperations.get_actions_for_game(session, game_id)
-            
+
             assert len(actions) == 3
             assert actions[0].action_type == "nominate"
             assert actions[0].is_valid is True
@@ -179,10 +177,10 @@ class TestWebAPIGameLog:
     async def test_game_operations_get_events_for_game(self, sample_game_data):
         """Test GameOperations.get_events_for_game method."""
         game_id = sample_game_data
-        
+
         async with get_async_session() as session:
             events = await GameOperations.get_events_for_game(session, game_id)
-            
+
             assert len(events) == 2
             assert events[0].event_type == "paper_published"
             assert events[0].event_data["paper"]["capability"] == 2
@@ -195,7 +193,7 @@ class TestWebAPIGameLog:
         # This should work (no parameters)
         async with get_async_session() as session:
             assert isinstance(session, AsyncSession)
-        
+
         # This should fail (with parameters) - documenting the error we found
         with pytest.raises(TypeError, match="takes 0 positional arguments but 1 was given"):
             async with get_async_session("sqlite:///test.db") as session:
@@ -207,16 +205,16 @@ class TestWebAPIGameLog:
         with patch('secret_agi.api.simple_api.GameOperations.get_actions_for_game') as mock_get_actions:
             with patch('secret_agi.api.simple_api.GameOperations.get_events_for_game') as mock_get_events:
                 with patch('secret_agi.api.simple_api.get_async_session'):
-                    
+
                     # Mock sample actions
                     mock_action_1 = MagicMock()
                     mock_action_1.turn_number = 1
-                    mock_action_1.player_id = "player_1" 
+                    mock_action_1.player_id = "player_1"
                     mock_action_1.action_type = "nominate"
                     mock_action_1.action_data = {"target_id": "player_2"}
                     mock_action_1.is_valid = True
                     mock_action_1.error_message = None
-                    
+
                     mock_action_2 = MagicMock()
                     mock_action_2.turn_number = 2
                     mock_action_2.player_id = "player_3"
@@ -224,31 +222,31 @@ class TestWebAPIGameLog:
                     mock_action_2.action_data = {"vote": False}
                     mock_action_2.is_valid = True
                     mock_action_2.error_message = None
-                    
+
                     mock_get_actions.return_value = [mock_action_1, mock_action_2]
                     mock_get_events.return_value = []
-                    
+
                     # Mock current_game to have a game_id
                     with patch('secret_agi.api.simple_api.current_game', {"game_id": "test-123"}):
                         response = client.get("/game-log")
-                        
+
                     assert response.status_code == 200
                     data = response.json()
                     assert data["success"] is True
-                    
+
                     # Check that actions are properly formatted
                     log_entries = data["data"]
                     action_entries = [entry for entry in log_entries if entry.get("type") == "action"]
-                    
+
                     assert len(action_entries) >= 2
-                    
+
                     # Check nominate action formatting
                     nominate_entry = next((e for e in action_entries if "nominate" in e["message"]), None)
                     assert nominate_entry is not None
                     assert "target: player_2" in nominate_entry["message"]
                     assert "✅" in nominate_entry["message"]
-                    
-                    # Check vote action formatting  
+
+                    # Check vote action formatting
                     vote_entry = next((e for e in action_entries if "vote_team" in e["message"]), None)
                     assert vote_entry is not None
                     assert "NO" in vote_entry["message"]  # vote: False should show as NO
@@ -280,9 +278,9 @@ class TestSimpleOrchestratorProperties:
             RandomPlayer("player_4"),
             RandomPlayer("player_5"),
         ]
-        
+
         result = await orchestrator.run_game(players)
-        
+
         # After running a game, current_game_id should be set
         assert orchestrator.current_game_id is not None
         assert orchestrator.current_game_id == result["game_id"]
@@ -297,9 +295,9 @@ class TestSimpleOrchestratorProperties:
             RandomPlayer("player_4"),
             RandomPlayer("player_5"),
         ]
-        
+
         await orchestrator.run_game(players)
-        
+
         # After running a game, engine should be available
         assert orchestrator.engine is not None
         assert hasattr(orchestrator.engine, "_engine")  # Internal SQLAlchemy engine
@@ -315,52 +313,52 @@ class TestDatabasePersistenceAcrossRestarts:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         db_url = f"sqlite+aiosqlite:///{db_path}"
-        
+
         try:
             # First orchestrator - create and run a game
             orchestrator1 = SimpleOrchestrator(database_url=db_url, debug_mode=False)
             players = [RandomPlayer(f"player_{i}") for i in range(5)]
-            
+
             result1 = await orchestrator1.run_game(players)
             game_id = result1["game_id"]
-            
+
             # Verify data was written
             async with get_async_session() as session:
                 actions = await GameOperations.get_actions_for_game(session, game_id)
                 assert len(actions) > 0  # Should have some actions
-            
+
             # Simulate server restart - create new orchestrator instance
-            orchestrator2 = SimpleOrchestrator(database_url=db_url, debug_mode=False)
-            
+            SimpleOrchestrator(database_url=db_url, debug_mode=False)
+
             # Verify data persists across orchestrator instances
             async with get_async_session() as session:
                 actions = await GameOperations.get_actions_for_game(session, game_id)
                 events = await GameOperations.get_events_for_game(session, game_id)
-                
+
                 assert len(actions) > 0
                 # Should have at least one game_ended event
                 game_end_events = [e for e in events if e.event_type == "game_ended"]
                 assert len(game_end_events) > 0
-                
+
         finally:
             # Cleanup
             Path(db_path).unlink(missing_ok=True)
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_most_recent_game_query(self):
         """Test querying for the most recent game from database."""
         # Create temporary database
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         db_url = f"sqlite+aiosqlite:///{db_path}"
-        
+
         try:
             await init_database(db_url)
-            
+
             # Create multiple games with different timestamps
             async with get_async_session() as session:
                 import time
-                
+
                 game1 = Game(
                     id="game-1",
                     status="COMPLETED",
@@ -369,29 +367,29 @@ class TestDatabasePersistenceAcrossRestarts:
                 )
                 session.add(game1)
                 await session.commit()
-                
+
                 # Small delay to ensure different timestamps
                 time.sleep(0.01)
-                
+
                 game2 = Game(
-                    id="game-2", 
+                    id="game-2",
                     status="COMPLETED",
                     config={"player_count": 5},
                     current_turn=15
                 )
                 session.add(game2)
                 await session.commit()
-                
+
                 # Query most recent game
                 from sqlalchemy import text
                 result = await session.execute(
                     text("SELECT id FROM games ORDER BY created_at DESC LIMIT 1")
                 )
                 row = result.fetchone()
-                
+
                 assert row is not None
                 assert row[0] == "game-2"  # Most recent game
-                
+
         finally:
             Path(db_path).unlink(missing_ok=True)
 
@@ -403,15 +401,15 @@ class TestErrorConditions:
         """Test game-log endpoint behavior with empty current_game dict."""
         global current_game
         original_game = current_game.copy() if current_game else {}
-        
+
         try:
             current_game.clear()  # Empty but not None
-            
+
             response = client.get("/game-log")
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            
+
         finally:
             current_game.update(original_game)
 
@@ -419,15 +417,15 @@ class TestErrorConditions:
         """Test game-log endpoint behavior with None orchestrator."""
         global current_orchestrator
         original_orchestrator = current_orchestrator
-        
+
         try:
             current_orchestrator = None
-            
+
             response = client.get("/game-log")
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            
+
         finally:
             current_orchestrator = original_orchestrator
 
@@ -435,7 +433,8 @@ class TestErrorConditions:
     async def test_database_connection_error_handling(self):
         """Test handling of database connection errors."""
         # Try to access non-existent database
-        with pytest.raises(Exception):  # Should raise some database error
+        from sqlalchemy import text
+        with pytest.raises((Exception, OSError)):  # Should raise some database error
             async with get_async_session() as session:
                 await session.execute(text("SELECT * FROM non_existent_table"))
 
@@ -444,7 +443,7 @@ class TestErrorConditions:
         with patch('secret_agi.api.simple_api.GameOperations.get_actions_for_game') as mock_get_actions:
             with patch('secret_agi.api.simple_api.GameOperations.get_events_for_game') as mock_get_events:
                 with patch('secret_agi.api.simple_api.get_async_session'):
-                    
+
                     # Mock action with None action_data
                     mock_action = MagicMock()
                     mock_action.turn_number = 1
@@ -453,13 +452,13 @@ class TestErrorConditions:
                     mock_action.action_data = None  # This was causing issues
                     mock_action.is_valid = True
                     mock_action.error_message = None
-                    
+
                     mock_get_actions.return_value = [mock_action]
                     mock_get_events.return_value = []
-                    
+
                     with patch('secret_agi.api.simple_api.current_game', {"game_id": "test-123"}):
                         response = client.get("/game-log")
-                        
+
                     assert response.status_code == 200
                     data = response.json()
                     assert data["success"] is True

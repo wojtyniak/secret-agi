@@ -466,8 +466,8 @@ class GameEngine:
                 "current_director": filtered_state.current_director,
                 "failed_proposals": filtered_state.failed_proposals,
                 "deck_size": len(filtered_state.deck),
-                "knows_allies": len([p for p in filtered_state.players 
-                                   if p.id != player_id and 
+                "knows_allies": len([p for p in filtered_state.players
+                                   if p.id != player_id and
                                    p.role in [Role.ACCELERATIONIST, Role.AGI] and
                                    player.role in [Role.ACCELERATIONIST, Role.AGI]]),
             },
@@ -489,7 +489,7 @@ class GameEngine:
         logger.info(f"   Director: {self._current_state.current_director}")
         logger.info(f"   Failed Proposals: {self._current_state.failed_proposals}")
         logger.info(f"   Deck: {len(self._current_state.deck)} cards remaining")
-        
+
         # Log player info
         for player in self._current_state.players:
             if player.alive:
@@ -498,7 +498,7 @@ class GameEngine:
                     f"   Player {player.id}: {player.role.value}, "
                     f"Actions: {[a.value for a in valid_actions[:3]]}{'...' if len(valid_actions) > 3 else ''}"
                 )
-        
+
         logger.info("🎮 === END SUMMARY ===")
 
     def set_debug_mode(self, enabled: bool) -> None:

@@ -5,11 +5,10 @@ Launch the Secret AGI web game viewer.
 This script starts the FastAPI backend and opens the game viewer in your browser.
 """
 
-import asyncio
-import webbrowser
-import time
-from pathlib import Path
 import sys
+import time
+import webbrowser
+from pathlib import Path
 
 # Add the project root to the path
 project_root = Path(__file__).parent
@@ -27,43 +26,44 @@ def main():
     print()
     print("Press Ctrl+C to stop the server")
     print()
-    
+
     try:
         # Import and run the API
-        from secret_agi.api.simple_api import app
         import uvicorn
-        
+
+        from secret_agi.api.simple_api import app
+
         # Start server in a way that allows browser opening
         print("🌐 Starting web server...")
-        
+
         # Open browser after a short delay
         def open_browser():
             time.sleep(2)  # Give server time to start
             print("🔗 Opening browser at http://localhost:8000")
             webbrowser.open("http://localhost:8000")
-        
+
         import threading
         browser_thread = threading.Thread(target=open_browser)
         browser_thread.daemon = True
         browser_thread.start()
-        
+
         # Start the server
         uvicorn.run(
-            app, 
-            host="0.0.0.0", 
+            app,
+            host="0.0.0.0",
             port=8000,
             log_level="info"
         )
-        
+
     except ImportError as e:
         print(f"❌ Error: Missing dependencies - {e}")
         print("Make sure you have FastAPI and uvicorn installed:")
         print("  pip install fastapi uvicorn")
         sys.exit(1)
-        
+
     except KeyboardInterrupt:
         print("\n👋 Shutting down web server...")
-        
+
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         sys.exit(1)

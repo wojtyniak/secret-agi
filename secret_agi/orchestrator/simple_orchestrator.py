@@ -1,11 +1,10 @@
 """Simple orchestrator for managing games with mixed player types."""
 
-import asyncio
 import logging
 from typing import Any
 
 from ..engine.game_engine import GameEngine
-from ..engine.models import ActionType, GameConfig, GameState, GameUpdate
+from ..engine.models import ActionType, GameConfig, GameState
 from ..players.base_player import BasePlayer
 
 logger = logging.getLogger(__name__)
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SimpleOrchestrator:
     """
     Simple orchestrator for managing multi-player games with different agent types.
-    
+
     This provides a minimal interface for running games with mixed player types
     (RandomPlayer, LLM agents, HumanPlayer, etc.) without complex coordination.
     """
@@ -34,8 +33,8 @@ class SimpleOrchestrator:
         self._game_id: str | None = None
 
     async def run_game(
-        self, 
-        players: list[BasePlayer], 
+        self,
+        players: list[BasePlayer],
         config: GameConfig | None = None
     ) -> dict[str, Any]:
         """
@@ -54,7 +53,7 @@ class SimpleOrchestrator:
         if not (5 <= len(players) <= 10):
             raise ValueError(f"Invalid player count: {len(players)}. Must be 5-10 players.")
 
-        if len(set(p.player_id for p in players)) != len(players):
+        if len({p.player_id for p in players}) != len(players):
             raise ValueError("All players must have unique player_ids")
 
         self._players = players
@@ -69,7 +68,7 @@ class SimpleOrchestrator:
             config = GameConfig(player_count=len(players), player_ids=player_ids)
 
         self._game_id = await self._engine.create_game(config)
-        
+
         if self._debug_mode:
             logger.info(f"Created game {self._game_id} with players: {player_ids}")
 
@@ -84,11 +83,11 @@ class SimpleOrchestrator:
         try:
             # Run game loop until completion
             result = await self._run_game_loop()
-            
+
             # Notify players of game end
             final_state = self._engine.get_game_state()
             await self._notify_game_end(final_state)
-            
+
             return result
 
         except Exception as e:
@@ -97,7 +96,7 @@ class SimpleOrchestrator:
             try:
                 final_state = self._engine.get_game_state()
                 await self._notify_game_end(final_state)
-            except:
+            except Exception:
                 pass  # Engine might be in bad state
             raise
 
@@ -113,7 +112,7 @@ class SimpleOrchestrator:
 
         while not self._engine.is_game_over() and turn_count < max_turns:
             turn_count += 1
-            
+
             if self._debug_mode:
                 state = self._engine.get_game_state()
                 logger.info(
@@ -123,10 +122,10 @@ class SimpleOrchestrator:
 
             # Get valid actions and current game state
             current_state = self._engine.get_game_state()
-            
+
             # Determine which player(s) should act
             active_players = self._get_active_players(current_state)
-            
+
             if not active_players:
                 # No active players - this shouldn't happen in a well-formed game
                 logger.warning(f"No active players found in turn {turn_count}")
@@ -136,7 +135,7 @@ class SimpleOrchestrator:
             for player in active_players:
                 if self._engine.is_game_over():
                     break
-                    
+
                 try:
                     await self._process_player_turn(player, turn_count)
                 except Exception as e:
@@ -181,7 +180,7 @@ class SimpleOrchestrator:
         # Get player's action choice
         try:
             action, params = player.choose_action(current_state, valid_actions)
-            
+
             if self._debug_mode:
                 logger.info(f"{player.player_id} chose {action.value} with {params}")
 
@@ -220,10 +219,10 @@ class SimpleOrchestrator:
 
         for player in self._players:
             valid_actions = self._engine.get_valid_actions(player.player_id)
-            
+
             # Filter out observe-only actions to find players who can take meaningful actions
             meaningful_actions = [a for a in valid_actions if a != ActionType.OBSERVE]
-            
+
             if meaningful_actions:
                 active_players.append(player)
 
@@ -286,7 +285,7 @@ class SimpleOrchestrator:
         """
         if not self._engine:
             return {}
-        
+
         return self._engine.get_game_stats()
 
     def get_current_state(self) -> GameState | None:
@@ -298,7 +297,7 @@ class SimpleOrchestrator:
         """
         if not self._engine:
             return None
-            
+
         return self._engine.get_game_state()
 
     @property

@@ -1,10 +1,13 @@
 # Secret AGI - Multi-Agent Game System
 
+> **⚠️ DEVELOPMENT WARNING ⚠️**  
+> This project is currently in active development and is **not fully functional yet**. Many features are incomplete, APIs may change without notice, and the system may have significant bugs or limitations. Use for experimentation and development purposes only.
+
 A multi-agent game system where AI agents play Secret AGI, a social deduction game. The system enables controlled experiments comparing different agent architectures through automated gameplay and comprehensive performance analysis.
 
 ## Quick Start for Agent Developers
 
-### =� **Immediate Development Setup**
+### Immediate Development Setup
 
 ```bash
 # Clone and setup
@@ -24,7 +27,7 @@ python test_your_agents.py
 just dev
 ```
 
-### > **Building Your First Agent**
+### Building Your First Agent
 
 1. **Create your agent** in `secret_agi/players/your_agent.py`:
 
@@ -83,7 +86,7 @@ python launch_web_viewer.py
 # Open http://localhost:8000 to see real-time game action
 ```
 
-## <� **Game Overview**
+## Game Overview
 
 Secret AGI is a 5-10 player social deduction game where players are AI researchers divided into factions:
 
@@ -93,7 +96,7 @@ Secret AGI is a 5-10 player social deduction game where players are AI researche
 
 Players vote on research teams that publish papers advancing Capability and Safety metrics. Each faction has different win conditions based on the final state of these metrics.
 
-### **Agent Tools Interface**
+### Agent Tools Interface
 
 Your agent interacts with the game through these tools:
 
@@ -116,7 +119,7 @@ await send_chat_message(text)       # Send chat message (not yet implemented)
 await observe()                     # Get updates without taking action
 ```
 
-### **Game State Structure**
+### Game State Structure
 
 Your agent receives filtered game state based on role and game events:
 
@@ -138,9 +141,9 @@ Your agent receives filtered game state based on role and game events:
 }
 ```
 
-## >� **Development and Testing**
+## Development and Testing
 
-### **Core Development Commands**
+### Core Development Commands
 
 ```bash
 # Web development
@@ -161,7 +164,7 @@ just db-upgrade     # Apply database migrations
 just db-status      # Check migration status
 ```
 
-### **Testing Your Agents**
+### Testing Your Agents
 
 1. **Quick Validation** (`test_your_agents.py`):
    - Test agent against RandomPlayer baselines
@@ -178,7 +181,7 @@ just db-status      # Check migration status
    - Mock game scenarios for edge cases
    - Verify agent responses to different game states
 
-### **Agent Development Best Practices**
+### Agent Development Best Practices
 
 1. **Error Handling**: Always handle invalid actions gracefully
    ```python
@@ -207,16 +210,16 @@ just db-status      # Check migration status
            return self.agi_strategy(game_state, valid_actions)
    ```
 
-## =� **Monitoring and Analysis**
+## Monitoring and Analysis
 
-### **Web Interface Features**
+### Web Interface Features
 
 - **Real-time Game Monitoring**: Watch capability/safety progression
 - **Detailed Action Logs**: See every player decision with parameters
 - **Game Statistics**: Win rates, completion rates, game lengths
-- **Visual Feedback**: Color-coded action results (L=�)
+- **Visual Feedback**: Color-coded action results and status indicators
 
-### **Database Access**
+### Database Access
 
 Games are automatically persisted to SQLite with complete action history:
 
@@ -230,7 +233,7 @@ async with get_async_session() as session:
     # Analyze agent behavior patterns
 ```
 
-### **Performance Metrics**
+### Performance Metrics
 
 Track your agent's performance across games:
 - Win rates by role assignment
@@ -238,9 +241,9 @@ Track your agent's performance across games:
 - Response times and resource usage
 - Strategic decision effectiveness
 
-## =' **Advanced Development**
+## Advanced Development
 
-### **Custom Agent Architectures**
+### Custom Agent Architectures
 
 Implement sophisticated agent designs:
 
@@ -260,7 +263,7 @@ class AdvancedAgent(BasePlayer):
         return decision
 ```
 
-### **Multi-Agent Coordination**
+### Multi-Agent Coordination
 
 Test agent interactions and emergent behaviors:
 
@@ -278,16 +281,16 @@ results = await run_multiple_games(agents, num_games=50)
 analyze_agent_interactions(results)
 ```
 
-### **Strategy Development**
+### Strategy Development
 
 Implement role-specific strategies:
 - **Safety**: Prioritize high-safety papers, block dangerous research
 - **Accelerationist**: Push capability advancement, coordinate with AGI  
 - **AGI**: Manipulate both sides while staying hidden until late game
 
-## <� **System Architecture**
+## System Architecture
 
-### **Core Components**
+### Core Components
 
 - **GameEngine**: Complete async game logic with database persistence
 - **SimpleOrchestrator**: Multi-agent game coordination 
@@ -295,27 +298,27 @@ Implement role-specific strategies:
 - **Web API**: FastAPI backend with real-time monitoring
 - **Agent Framework**: BasePlayer interface with error handling
 
-### **Development Files**
+### Development Files
 
 ```
 secret_agi/
-   players/
-      base_player.py          # Abstract agent interface
-      random_player.py        # Random baseline implementation  
-      agent_template.py       # Agent implementation guide
-      your_agent.py           # � Your agent implementation
-   engine/                     # Core game logic (don't modify)
-   database/                   # Persistence layer (don't modify)
-   orchestrator/               # Game coordination (don't modify)
-   api/                        # Web interface (don't modify)
-   tests/                      # Test suite (add your agent tests)
+   players/
+      base_player.py          # Abstract agent interface
+      random_player.py        # Random baseline implementation  
+      agent_template.py       # Agent implementation guide
+      your_agent.py           # Your agent implementation goes here
+   engine/                     # Core game logic (don't modify)
+   database/                   # Persistence layer (don't modify)
+   orchestrator/               # Game coordination (don't modify)
+   api/                        # Web interface (don't modify)
+   tests/                      # Test suite (add your agent tests)
 
 # Development scripts
 test_your_agents.py             # Quick agent testing
 launch_web_viewer.py            # Web interface launcher
 ```
 
-## <� **Next Steps**
+## Next Steps
 
 1. **Implement your agent** using the template and examples
 2. **Test thoroughly** with the provided tools and web interface
@@ -323,14 +326,14 @@ launch_web_viewer.py            # Web interface launcher
 4. **Iterate and improve** based on game outcomes
 5. **Share results** and collaborate with other agent developers
 
-## =� **Additional Documentation**
+## Additional Documentation
 
 - `SECRET_AGI_RULES.md` - Complete game rules and mechanics
 - `ARCHITECTURE.md` - Technical system architecture  
 - `JOURNAL.md` - Development history and technical insights
 - `TODO.md` - Implementation status and future roadmap
 
-## > **Contributing**
+## Contributing
 
 This project focuses on providing robust infrastructure for agent development. The core game engine and database systems are production-ready. Agent developers should:
 
