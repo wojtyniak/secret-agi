@@ -425,6 +425,34 @@ class GameOperations:
         return list(result.scalars().all())
 
     @staticmethod
+    async def get_agent_metrics_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[AgentMetric]:
+        """Get all per-decision agent metrics for a specific game."""
+        query = (
+            select(AgentMetric)  # type: ignore
+            .where(AgentMetric.game_id == game_id)  # type: ignore
+            .order_by(AgentMetric.turn_number, AgentMetric.created_at)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_state_snapshots_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[tuple[int, dict[str, Any]]]:
+        """Get every per-turn state snapshot for a game, oldest first."""
+        query = (
+            select(GameStateDB.turn_number, GameStateDB.state_data)  # type: ignore
+            .where(GameStateDB.game_id == game_id)  # type: ignore
+            .order_by(GameStateDB.turn_number)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return [(row[0], row[1]) for row in result.fetchall()]
+
+    @staticmethod
     async def get_actions_for_game(session: AsyncSession, game_id: str) -> list[Action]:
         """Get all actions for a specific game."""
         query = (

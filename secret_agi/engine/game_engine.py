@@ -53,6 +53,11 @@ class GameEngine:
         # seeded game stays reproducible even when games run concurrently.
         self._rng = random.Random()
 
+    @property
+    def game_id(self) -> str | None:
+        """The active game's id, or None before a game is created or loaded."""
+        return self._game_id
+
     async def init_database(self, database_url: str | None = None) -> None:
         """Initialize the database connection using centralized configuration."""
         # Use provided URL, instance URL, or centralized configuration

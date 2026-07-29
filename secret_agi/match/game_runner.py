@@ -128,6 +128,8 @@ class GameRunner:
                 logger.exception("player %s raised while choosing", player_id)
                 action, params = self.engine.random_valid_action(player_id, self._rng)
 
+            await self._record_metrics(player, state.turn_number)
+
             result = await self.engine.perform_action(player_id, action, **params)
 
             if not result.success:
@@ -146,6 +148,26 @@ class GameRunner:
                 await other.on_game_update(result)
 
             turns += 1
+
+    async def _record_metrics(self, player: BasePlayer, turn_number: int) -> None:
+        """Write one AgentMetric row per model decision.
+
+        Only LLM players have anything worth recording; a RandomPlayer's cost is
+        zero by construction.
+        """
+        if not isinstance(player, LLMPlayer):
+            return
+
+        async with get_async_session() as session:
+            await GameOperations.record_agent_metrics(
+                session,
+                game_id=self.engine.game_id or "",
+                player_id=player.player_id,
+                turn=turn_number,
+                tokens_used=player.last_usage.total_tokens,
+                response_time_ms=player.last_latency_ms,
+                invalid_attempts=player.last_invalid_attempts,
+            )
 
     def _blocks_progress(self, player_id: str) -> bool:
         """True when this player still owes the game a real decision.
