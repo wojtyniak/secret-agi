@@ -28,6 +28,17 @@ class Phase(Enum):
     GAME_OVER = "GameOver"
 
 
+class DiscussionKind(Enum):
+    """Which discussion sub-phase of Team Proposal is currently open.
+
+    Discussion is a sub-phase of TEAM_PROPOSAL, not a phase of its own: the board
+    state and everything else is unchanged, only the set of valid actions narrows.
+    """
+
+    PRE_NOMINATION = "pre_nomination"
+    PRE_VOTE = "pre_vote"
+
+
 class ActionType(Enum):
     """Available action types."""
 
@@ -87,6 +98,22 @@ class Player:
             self.allegiance = Allegiance.SAFETY
         elif self.role in [Role.ACCELERATIONIST, Role.AGI]:
             self.allegiance = Allegiance.ACCELERATION
+
+
+@dataclass
+class ChatEntry:
+    """A single public chat message.
+
+    All table talk is public (matching the tabletop game), so this needs no
+    per-player filtering.
+    """
+
+    id: str
+    speaker_id: str
+    message: str
+    discussion_kind: str
+    round_number: int
+    turn_number: int
 
 
 @dataclass
@@ -162,6 +189,17 @@ class GameState:
     # Power tracking
     viewed_allegiances: dict[str, dict[str, Allegiance]] = field(default_factory=dict)
 
+    # Chat / discussion sub-phase. Disabled unless the GameConfig turns it on, so
+    # games that predate chat behave exactly as before.
+    chat_enabled: bool = False
+    chat_messages_per_player: int = 2
+    chat_max_message_length: int = 600
+    discussion_kind: DiscussionKind | None = None
+    discussion_order: list[str] = field(default_factory=list)
+    discussion_speaker_index: int = 0
+    discussion_pass: int = 0
+    chat_log: list[ChatEntry] = field(default_factory=list)
+
     # Game status
     is_game_over: bool = False
     winners: list[Role] = field(default_factory=list)
@@ -183,6 +221,20 @@ class GameState:
     def alive_player_count(self) -> int:
         """Get count of alive players."""
         return len(self.alive_players)
+
+    @property
+    def discussion_active(self) -> bool:
+        """True while a discussion sub-phase is open."""
+        return self.discussion_kind is not None
+
+    @property
+    def current_speaker_id(self) -> str | None:
+        """The player whose turn it is to speak, or None outside a discussion."""
+        if self.discussion_kind is None:
+            return None
+        if not 0 <= self.discussion_speaker_index < len(self.discussion_order):
+            return None
+        return self.discussion_order[self.discussion_speaker_index]
 
     def get_player_by_id(self, player_id: str) -> Player | None:
         """Get player by ID."""
@@ -217,12 +269,22 @@ class GameConfig:
     player_ids: list[str]
     seed: int | None = None
 
+    # Discussion sub-phases. Off by default so the engine's existing behaviour
+    # (and its test suite) is unchanged; the match runner turns chat on.
+    chat_enabled: bool = False
+    chat_messages_per_player: int = 2
+    chat_max_message_length: int = 600
+
     def __post_init__(self) -> None:
         """Validate configuration."""
         if self.player_count < 5 or self.player_count > 10:
             raise ValueError("Player count must be between 5 and 10")
         if len(self.player_ids) != self.player_count:
             raise ValueError("Number of player IDs must match player count")
+        if self.chat_messages_per_player < 1:
+            raise ValueError("chat_messages_per_player must be at least 1")
+        if self.chat_max_message_length < 1:
+            raise ValueError("chat_max_message_length must be at least 1")
 
 
 @dataclass

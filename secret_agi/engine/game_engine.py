@@ -13,6 +13,9 @@ from .events import EventFilter, GameStateManager
 from .models import (
     ActionType,
     Allegiance,
+    ChatEntry,
+    DiscussionKind,
+    EventType,
     GameConfig,
     GameState,
     GameUpdate,
@@ -46,6 +49,9 @@ class GameEngine:
         self._game_id: str | None = None
         self._database_url = database_url
         self._debug_mode = debug_mode
+        # Per-game RNG, re-seeded in create_game. Kept on the instance so that a
+        # seeded game stays reproducible even when games run concurrently.
+        self._rng = random.Random()
 
     async def init_database(self, database_url: str | None = None) -> None:
         """Initialize the database connection using centralized configuration."""
@@ -64,29 +70,36 @@ class GameEngine:
         Create a new game with the given configuration.
         Returns the game ID.
         """
-        # Set random seed if provided
-        if config.seed is not None:
-            random.seed(config.seed)
+        # Per-game RNG. Seeding the global `random` would make "seeded" games
+        # non-deterministic as soon as games run concurrently.
+        rng = random.Random(config.seed)
+        self._rng = rng
 
         # Create game state
         game_id = str(uuid.uuid4())
         state = GameState(game_id=game_id)
 
         # Create and assign roles
-        players = self._create_players(config)
+        players = self._create_players(config, rng)
         state.players = players
 
         # Create and shuffle deck
         deck = create_standard_deck()
-        random.shuffle(deck)
+        rng.shuffle(deck)
         state.deck = deck
 
         # Set random starting director
         alive_indices = [i for i, p in enumerate(players) if p.alive]
-        state.current_director_index = random.choice(alive_indices)
+        state.current_director_index = rng.choice(alive_indices)
 
         # Initialize state
         state.current_phase = Phase.TEAM_PROPOSAL
+        state.chat_enabled = config.chat_enabled
+        state.chat_messages_per_player = config.chat_messages_per_player
+        state.chat_max_message_length = config.chat_max_message_length
+
+        # Open the first discussion so the table can talk before the first nomination.
+        ActionProcessor._start_discussion(state, DiscussionKind.PRE_NOMINATION)
 
         # Save to database
         async with get_async_session() as session:
@@ -165,6 +178,28 @@ class GameEngine:
         if "current_phase" in state_data:
             state.current_phase = Phase(state_data["current_phase"])
 
+        # Chat / discussion sub-phase state
+        for chat_field in [
+            "chat_enabled",
+            "chat_messages_per_player",
+            "chat_max_message_length",
+            "discussion_speaker_index",
+            "discussion_pass",
+        ]:
+            if chat_field in state_data:
+                setattr(state, chat_field, state_data[chat_field])
+
+        if state_data.get("discussion_kind"):
+            state.discussion_kind = DiscussionKind(state_data["discussion_kind"])
+
+        if state_data.get("discussion_order"):
+            state.discussion_order = list(state_data["discussion_order"])
+
+        if state_data.get("chat_log"):
+            state.chat_log = [
+                ChatEntry(**entry) for entry in state_data["chat_log"]
+            ]
+
         # Handle complex list fields
         if "players" in state_data:
             state.players = [self._reconstruct_player(p) for p in state_data["players"]]
@@ -237,8 +272,11 @@ class GameEngine:
             was_last_engineer=player_data["was_last_engineer"],
         )
 
-    def _create_players(self, config: GameConfig) -> list[Player]:
+    def _create_players(
+        self, config: GameConfig, rng: random.Random | None = None
+    ) -> list[Player]:
         """Create players with appropriate role assignments."""
+        rng = rng or random.Random(config.seed)
         role_distribution = get_role_distribution(config.player_count)
 
         # Create role list
@@ -247,7 +285,7 @@ class GameEngine:
             roles.extend([role] * count)
 
         # Shuffle roles
-        random.shuffle(roles)
+        rng.shuffle(roles)
 
         # Create players
         players = []
@@ -334,6 +372,15 @@ class GameEngine:
             else:
                 logger.warning(f"❌ {player_id} action failed: {result.error}")
 
+        # Chat messages produced by this action (the transcript is the raw material
+        # for the judge pipeline, so it gets its own table as well as the event log).
+        new_chat_events = [
+            event
+            for event in result.events
+            if event.type == EventType.CHAT_MESSAGE and event.data.get("message")
+        ]
+        result.chat_messages = new_chat_events
+
         # Save to database
         if self._game_id:
             async with get_async_session() as session:
@@ -351,6 +398,16 @@ class GameEngine:
                 if result.success:
                     await GameOperations.save_game_state(
                         session, self._game_id, turn_number, self._current_state
+                    )
+
+                for event in new_chat_events:
+                    await GameOperations.record_chat_message(
+                        session,
+                        self._game_id,
+                        turn_number,
+                        event.player_id or player_id,
+                        str(event.data.get("message", "")),
+                        str(event.data.get("discussion_kind", "unknown")),
                     )
 
         # Always save in-memory state
@@ -530,7 +587,7 @@ class GameEngine:
 
                 if valid_actions:
                     # Take a random action
-                    action = random.choice(valid_actions)
+                    action = self._rng.choice(valid_actions)
 
                     # Generate random parameters based on action type
                     kwargs = self._generate_random_action_params(action, player.id)
@@ -554,6 +611,24 @@ class GameEngine:
             "final_stats": self.get_game_stats(),
         }
 
+    def random_valid_action(
+        self, player_id: str, rng: random.Random | None = None
+    ) -> tuple[ActionType, dict[str, Any]]:
+        """Pick a random valid action for a player, with valid parameters.
+
+        The documented last resort when an agent fails or keeps returning
+        something unusable: it keeps the game moving instead of deadlocking on a
+        player that cannot act.
+        """
+        chooser = rng or self._rng
+        valid = self.get_valid_actions(player_id)
+        actionable = [a for a in valid if a != ActionType.OBSERVE]
+        if not actionable:
+            return ActionType.OBSERVE, {}
+
+        action = chooser.choice(actionable)
+        return action, self._generate_random_action_params(action, player_id)
+
     def _generate_random_action_params(
         self, action: ActionType, player_id: str
     ) -> dict[str, Any]:
@@ -566,25 +641,25 @@ class GameEngine:
         if action == ActionType.NOMINATE:
             eligible = GameRules.get_eligible_engineers(self._current_state)
             if eligible:
-                kwargs["target_id"] = random.choice(eligible)
+                kwargs["target_id"] = self._rng.choice(eligible)
 
         elif action in [ActionType.VOTE_TEAM, ActionType.VOTE_EMERGENCY]:
-            kwargs["vote"] = random.choice([True, False])
+            kwargs["vote"] = self._rng.choice([True, False])
 
         elif action == ActionType.DISCARD_PAPER:
             if self._current_state.director_cards:
-                kwargs["paper_id"] = random.choice(
+                kwargs["paper_id"] = self._rng.choice(
                     self._current_state.director_cards
                 ).id
 
         elif action == ActionType.PUBLISH_PAPER:
             if self._current_state.engineer_cards:
-                kwargs["paper_id"] = random.choice(
+                kwargs["paper_id"] = self._rng.choice(
                     self._current_state.engineer_cards
                 ).id
 
         elif action == ActionType.RESPOND_VETO:
-            kwargs["agree"] = random.choice([True, False])
+            kwargs["agree"] = self._rng.choice([True, False])
 
         elif action == ActionType.USE_POWER:
             # This would need more sophisticated logic based on what powers are available
@@ -592,7 +667,7 @@ class GameEngine:
                 p.id for p in self._current_state.alive_players if p.id != player_id
             ]
             if alive_players:
-                kwargs["target_id"] = random.choice(alive_players)
+                kwargs["target_id"] = self._rng.choice(alive_players)
                 kwargs["power_type"] = "view_allegiance"  # Default power
 
         elif action == ActionType.SEND_CHAT_MESSAGE:

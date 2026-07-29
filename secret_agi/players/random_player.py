@@ -25,8 +25,9 @@ class RandomPlayer(BasePlayer):
             seed: Optional random seed for reproducible behavior
         """
         super().__init__(player_id)
-        if seed is not None:
-            random.seed(seed)
+        # A private RNG: seeding the global `random` would couple every player
+        # and every concurrent game to one shared stream.
+        self._rng = random.Random(seed)
 
         self.role: Role | None = None
         self.known_allies: list[str] = []
@@ -48,7 +49,7 @@ class RandomPlayer(BasePlayer):
 
         action: ActionType
         if non_observe_actions:
-            action = random.choice(non_observe_actions)
+            action = self._rng.choice(non_observe_actions)
         else:
             action = ActionType.OBSERVE
 
@@ -79,21 +80,21 @@ class RandomPlayer(BasePlayer):
             # Choose a random eligible engineer
             eligible_engineers = self._get_eligible_engineers(game_state)
             if eligible_engineers:
-                params["target_id"] = random.choice(eligible_engineers)
+                params["target_id"] = self._rng.choice(eligible_engineers)
 
         elif action in [ActionType.VOTE_TEAM, ActionType.VOTE_EMERGENCY]:
             # Random vote with slight bias toward "yes" to keep game moving
-            params["vote"] = random.choice([True, True, True, False])  # 75% yes
+            params["vote"] = self._rng.choice([True, True, True, False])  # 75% yes
 
         elif action == ActionType.DISCARD_PAPER:
             # Randomly discard one of the director's cards
             if game_state.director_cards:
-                params["paper_id"] = random.choice(game_state.director_cards).id
+                params["paper_id"] = self._rng.choice(game_state.director_cards).id
 
         elif action == ActionType.PUBLISH_PAPER:
             # Randomly publish one of the engineer's cards
             if game_state.engineer_cards:
-                params["paper_id"] = random.choice(game_state.engineer_cards).id
+                params["paper_id"] = self._rng.choice(game_state.engineer_cards).id
 
         elif action == ActionType.DECLARE_VETO:
             # No parameters needed for veto declaration
@@ -101,7 +102,7 @@ class RandomPlayer(BasePlayer):
 
         elif action == ActionType.RESPOND_VETO:
             # Random response to veto with slight bias toward disagreeing
-            params["agree"] = random.choice([False, False, True])  # 33% agree
+            params["agree"] = self._rng.choice([False, False, True])  # 33% agree
 
         elif action == ActionType.USE_POWER:
             # Generate parameters for power usage
@@ -118,7 +119,7 @@ class RandomPlayer(BasePlayer):
                 "This could work",
                 "I'm not sure about this",
             ]
-            params["text"] = random.choice(messages)
+            params["text"] = self._rng.choice(messages)
 
         return params
 
@@ -136,11 +137,11 @@ class RandomPlayer(BasePlayer):
         ]
 
         if other_players:
-            params["target_id"] = random.choice(other_players)
+            params["target_id"] = self._rng.choice(other_players)
 
             # Randomly choose power type (in practice this would be determined by game state)
             power_types = ["view_allegiance", "eliminate", "choose_director"]
-            params["power_type"] = random.choice(power_types)
+            params["power_type"] = self._rng.choice(power_types)
 
         return params
 
@@ -301,7 +302,7 @@ class BiasedRandomPlayer(RandomPlayer):
             or ActionType.VOTE_EMERGENCY in valid_actions
         ):
             # Use biased voting but still random
-            action_choice = random.choice(
+            action_choice = self._rng.choice(
                 [a for a in valid_actions if a != ActionType.OBSERVE] or valid_actions
             )
             params = self._generate_biased_vote_parameters(action_choice, game_state)
@@ -320,7 +321,7 @@ class BiasedRandomPlayer(RandomPlayer):
         """Generate vote parameters with role bias."""
         if action in [ActionType.VOTE_TEAM, ActionType.VOTE_EMERGENCY]:
             yes_bias = self.role_bias.get("team_vote_yes_bias", 0.5)
-            vote = random.random() < yes_bias
+            vote = self._rng.random() < yes_bias
             return {"vote": vote}
 
         return self._generate_action_parameters(action, game_state)
@@ -344,6 +345,6 @@ class BiasedRandomPlayer(RandomPlayer):
             best_paper = max(papers, key=lambda p: p.capability)
         else:
             # Random choice
-            best_paper = random.choice(papers)
+            best_paper = self._rng.choice(papers)
 
         return ActionType.PUBLISH_PAPER, {"paper_id": best_paper.id}

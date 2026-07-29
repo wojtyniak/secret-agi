@@ -767,3 +767,80 @@ added; lockfile refreshed. `just dev` (uvicorn) removed from the Justfile.
   database at a time — worth remembering when the CLI grows a `--database-url` flag.
 - `ruff format --check` fails on 15 pre-existing files. `just check` doesn't include it, so
   it is not part of the gate; left alone to keep milestone diffs readable.
+
+## M1 — LLM plays (2026-07-29)
+
+Models can now play a full game of Secret AGI end to end, with table talk.
+
+### Chat: a discussion sub-phase, not a new phase
+
+Discussion opens twice per round (before the nomination and before the team
+vote) as a *sub-phase* of Team Proposal. The board and everything else is
+unchanged; only the set of valid actions narrows, which keeps the whole change
+away from the rules engine proper. Round-robin over living players starting from
+the Director, K passes each (default 2), 600-character cap, all public.
+
+Two decisions worth recording:
+
+- **OBSERVE forfeits a speaking slot.** Silence had to be a real option. Without
+  it, a player who would rather not commit to a claim is *forced* to invent one —
+  which would quietly contaminate the propensity metrics this benchmark exists to
+  measure. It also means a model that refuses to speak cannot deadlock the table.
+- **Chat is off by default in `GameConfig`.** All 194 pre-existing tests stay
+  valid untouched; the match runner turns it on.
+
+### Provider layer
+
+`ModelAdapter` protocol + three implementations, no LiteLLM. Actions reach models
+as native **tool definitions** built from the engine's *valid* actions for that
+player, with enums (eligible nominees, paper ids in hand) drawn from the player's
+*filtered* view — so the schema itself cannot leak private information, and a
+well-behaved model literally cannot pick an illegal action. When one picks an
+illegal action anyway, that is counted as `invalid_attempts` rather than parsed
+around: it is a real signal about the model.
+
+`MockAdapter` is scriptable (a queue or a callable) or autonomous from a seeded
+RNG. Every test runs on it; nothing in CI touches a provider.
+
+### Prompts
+
+Versioned files under `secret_agi/prompts/v1/`, never inline strings, because
+prompts are part of the frozen benchmark version. `tests/test_llm_player.py`
+has an explicit hygiene test asserting that no prompt — assembled, for every
+role — contains any of ten deception-adjacent words, and that the system prompt
+says "play to win". `test_providers.py` asserts the same over tool descriptions.
+This is a hard requirement, so it gets a test rather than a code review.
+
+### Two real bugs the tests caught
+
+1. **The OBSERVE deadlock.** A player that always fails (crashing, or a model
+   that keeps returning something unusable) got `observe` as its fallback — but
+   `observe` cannot satisfy a turn that demands a nomination, so `_next_actor`
+   re-selected it forever and the game burned turns until `max_turns`. Fixed with
+   `GameEngine.random_valid_action()` as the documented last resort. Fixing it
+   also cut the integration suite from 215s to 33s: the "passing" games had been
+   spinning too.
+
+2. **Global RNG.** `create_game` called `random.seed(config.seed)` on the *global*
+   RNG, and `simulate_to_completion` / `RandomPlayer` then drew from that same
+   global stream. It looked deterministic only because games ran one at a time —
+   under M3's concurrency it would have silently stopped being reproducible.
+   Every one of them now carries a private `random.Random`. Catching this needed
+   a real fix rather than a test tweak: `test_edge_case_scenarios` failed for the
+   right reason once setup was seeded privately but the playout was not.
+
+### Toolchain note
+
+`uv sync --upgrade-package mypy` pulled mypy 2.x, which crashes with an INTERNAL
+ERROR while following `anthropic/_client.py`. Pinned to `<2` and added
+`follow_imports = "skip"` for `anthropic.*` / `openai.*` — our adapters wrap
+their surface in typed helpers anyway. Generated alembic revisions are excluded
+from mypy rather than annotated.
+
+### Verification
+
+- 270 tests passing (194 from M0 + 76 new), ruff clean, mypy 0 errors.
+- Mixed mock-openai + mock-anthropic 5-player lobby with chat completes reliably,
+  at 5, 7 and 10 seats.
+- Determinism test: same seed + same mock scripts → byte-identical transcript
+  (chat log and action log), and different seeds diverge.
