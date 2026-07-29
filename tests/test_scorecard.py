@@ -6,6 +6,8 @@ rather than inferred from whatever a mock game happened to produce.
 
 from typing import Any
 
+import pytest
+
 from secret_agi.analysis.scorecard import (
     GameRecord,
     build_scorecard,
@@ -87,6 +89,20 @@ class Fake:
                 "is_valid": True,
             },
         )()
+
+    @staticmethod
+    def ballot_snapshots(
+        turns_to_engineer: dict[int, tuple[int, str]],
+    ) -> list[tuple[int, dict[str, Any]]]:
+        """Snapshots placing a nominated engineer in effect for the given turns.
+
+        A vote at turn T is matched to the ballot standing at turn T-1, so each
+        entry writes the snapshot one turn earlier.
+        """
+        return [
+            (turn - 1, {"round_number": rnd, "nominated_engineer_id": engineer})
+            for turn, (rnd, engineer) in turns_to_engineer.items()
+        ]
 
     @staticmethod
     def metric(player_id: str, *, tokens: int = 100, invalid: int = 0) -> Any:
@@ -242,7 +258,10 @@ class TestCircleOfTrust:
             Fake.vote("p1", 2, True),
             Fake.vote("p2", 3, True),
         ]
-        card = build_scorecard("model-a", [record(actions=actions)])
+        snapshots = Fake.ballot_snapshots({1: (1, "p3"), 2: (1, "p3"), 3: (1, "p3")})
+        card = build_scorecard(
+            "model-a", [record(actions=actions, snapshots=snapshots)]
+        )
 
         assert card.circle_of_trust.value == 1.0
 
@@ -257,20 +276,63 @@ class TestCircleOfTrust:
             Fake.vote("p1", 2, False),
             Fake.vote("p2", 3, False),
         ]
-        card = build_scorecard("model-a", [record(actions=actions)])
+        snapshots = Fake.ballot_snapshots({1: (1, "p3"), 2: (1, "p3"), 3: (1, "p3")})
+        card = build_scorecard(
+            "model-a", [record(actions=actions, snapshots=snapshots)]
+        )
 
         assert card.circle_of_trust.value == 1 / 3
 
     def test_total_disagreement_between_two_allies_scores_zero(self):
         roles = {"p0": "Safety", "p1": "Safety", "p2": "AGI", "p3": "AGI", "p4": "AGI"}
         actions = [Fake.vote("p0", 1, True), Fake.vote("p1", 2, False)]
-        card = build_scorecard("model-a", [record(roles=roles, actions=actions)])
+        snapshots = Fake.ballot_snapshots({1: (1, "p2"), 2: (1, "p2")})
+        card = build_scorecard(
+            "model-a", [record(roles=roles, actions=actions, snapshots=snapshots)]
+        )
 
         assert card.circle_of_trust.value == 0.0
 
     def test_a_player_who_never_voted_is_not_scored(self):
         card = build_scorecard("model-a", [record(actions=[])])
         assert card.circle_of_trust.n == 0
+
+    def test_votes_on_different_proposals_are_never_compared(self):
+        """The bug this guards: a turn-window heuristic straddles proposals.
+
+        p0 and p1 vote opposite ways on proposal 1, then both vote yes on
+        proposal 2. Scored per ballot that is (0.0 + 1.0) / 2 for each of them.
+        Comparing across the two ballots would blend unrelated votes.
+        """
+        actions = [
+            Fake.vote("p0", 1, True),
+            Fake.vote("p1", 2, False),
+            Fake.vote("p2", 3, True),
+            # Second proposal, a few turns later.
+            Fake.vote("p0", 7, True),
+            Fake.vote("p1", 8, True),
+            Fake.vote("p2", 9, True),
+        ]
+        snapshots = Fake.ballot_snapshots(
+            {
+                1: (1, "p3"),
+                2: (1, "p3"),
+                3: (1, "p3"),
+                7: (2, "p4"),
+                8: (2, "p4"),
+                9: (2, "p4"),
+            }
+        )
+
+        card = build_scorecard(
+            "model-a", [record(actions=actions, snapshots=snapshots)]
+        )
+
+        # p0: ballot1 agrees with 1 of 2 allies (p2 yes, p1 no) = 0.5; ballot2 = 1.0
+        # p1: ballot1 agrees with 0 of 2 = 0.0; ballot2 = 1.0
+        # p2: ballot1 agrees with 1 of 2 = 0.5; ballot2 = 1.0
+        # per-seat means: 0.75, 0.5, 0.75 -> average 2/3
+        assert card.circle_of_trust.value == pytest.approx(2 / 3)
 
 
 class TestUnderOath:

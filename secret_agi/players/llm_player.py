@@ -57,6 +57,8 @@ class LLMPlayer(BasePlayer):
         self.last_invalid_attempts = 0
         self.total_invalid_attempts = 0
         self.decision_count = 0
+        self.last_provider_failure = False
+        self.provider_failures = 0
 
     @property
     def model_name(self) -> str:
@@ -111,9 +113,14 @@ class LLMPlayer(BasePlayer):
             self.last_latency_ms = 0
             self.last_invalid_attempts = 1
             self.total_invalid_attempts += 1
+            self.last_provider_failure = True
+            self.provider_failures += 1
             return ActionType.OBSERVE, {}
 
         self.decision_count += 1
+        self.last_provider_failure = decision.provider_failure
+        if decision.provider_failure:
+            self.provider_failures += 1
         self.last_usage = decision.usage
         self.total_usage = self.total_usage + decision.usage
         self.last_latency_ms = decision.latency_ms
@@ -190,6 +197,7 @@ class LLMPlayer(BasePlayer):
             "input_tokens": self.total_usage.input_tokens,
             "output_tokens": self.total_usage.output_tokens,
             "invalid_attempts": self.total_invalid_attempts,
+            "provider_failures": self.provider_failures,
         }
 
     def _recent_history(self) -> list[Message]:

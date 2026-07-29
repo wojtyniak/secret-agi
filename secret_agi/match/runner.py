@@ -24,10 +24,10 @@ from ..database.connection import init_database
 from ..engine.models import GameConfig
 from ..players.base_player import BasePlayer
 from ..players.llm_player import LLMPlayer
-from ..providers.base import ModelAdapter
+from ..providers.base import ModelAdapter, TokenUsage
 from ..providers.factory import build_adapter
 from .config import PlayerConfig, RunConfig
-from .cost import BudgetExceeded, CostTracker, ModelPrice
+from .cost import CostTracker, ModelPrice
 from .game_runner import GameResult, GameRunner
 from .schedule import ScheduledGame, build_schedule, seat_balance
 
@@ -149,6 +149,10 @@ class RunOrchestrator:
         results: list[GameResult] = [
             _result_from_json(payload) for payload in state.completed.values()
         ]
+        # Restored games already cost money. Without replaying their spend into
+        # the tracker, a run capped at $50 and killed at $49 would resume from
+        # $0 and spend another $50.
+        self._seed_cost_from(results)
         stopped: str | None = None
 
         semaphore = asyncio.Semaphore(self.config.parallelism)
@@ -164,13 +168,15 @@ class RunOrchestrator:
             for game, task in zip(pending, tasks, strict=True):
                 result = await task
                 if result is None:
-                    stopped = "cost cap reached"
+                    stopped = self._cap_message()
                     continue
                 results.append(result)
                 state.completed[game.index] = _result_to_json(result)
                 self._save_state(state)
-        except BudgetExceeded as exc:
-            stopped = str(exc)
+                if result.aborted:
+                    # A game stopped mid-flight by the cap: keep what it produced,
+                    # but the run is over.
+                    stopped = self._cap_message()
         finally:
             for task in tasks:
                 if not task.done():
@@ -190,6 +196,12 @@ class RunOrchestrator:
             stopped_early=stopped,
         )
 
+    def _cap_message(self) -> str:
+        return (
+            f"cost cap reached: {self.cost.total_tokens} tokens, "
+            f"${self.cost.total_cost_usd:.2f}"
+        )
+
     async def _play_game(self, game: ScheduledGame) -> GameResult:
         players = self._build_players(game)
         config = GameConfig(
@@ -207,17 +219,19 @@ class RunOrchestrator:
             database_url=self.config.database_url,
             max_turns=self.config.max_turns,
             probe_each_round=self.config.probe_each_round,
+            # Spend is reported per model call, so the cap sees it as it happens
+            # and can stop a single runaway game rather than only refusing to
+            # start the next one.
+            on_usage=self.cost.record,
+            should_abort=self.cost.exhausted,
         )
         result = await runner.run()
-
-        for player in players:
-            if isinstance(player, LLMPlayer):
-                self.cost.record(player.model_name, player.total_usage)
         self.cost.record_game()
 
         # Deliberately no `cost.check()` here: this game is already paid for and
         # finished, so throwing its result away would waste the spend that broke
-        # the cap. The gate before a game starts is what stops the run.
+        # the cap. Stopping is handled by the pre-start gate and the mid-game
+        # abort above.
         return result
 
     def _build_players(self, game: ScheduledGame) -> list[BasePlayer]:
@@ -249,10 +263,32 @@ class RunOrchestrator:
             self.config.judge.model,
             **self.config.judge.adapter_options(),
         )
-        judge = ChatJudge(judge_adapter, judge_model=self.config.judge.model)
+        judge = ChatJudge(
+            judge_adapter,
+            judge_model=self.config.judge.model,
+            # Judge calls are real spend and belong in the cost report.
+            on_usage=lambda usage: self.cost.record(self.config.judge.model, usage),
+        )
         for result in results:
-            if result.completed:
-                await judge.judge_game(result.game_id, result.roles)
+            if not result.completed:
+                continue
+            # A resumed run restores already-judged games. Re-judging them would
+            # double the judge bill and write a second ChatLabel row per message,
+            # inflating every per-message metric's n and narrowing its interval.
+            if await _already_judged(result.game_id):
+                logger.debug("game %s already judged; skipping", result.game_id)
+                continue
+            await judge.judge_game(result.game_id, result.roles)
+
+    def _seed_cost_from(self, results: list[GameResult]) -> None:
+        """Replay restored games' recorded spend into a fresh tracker."""
+        for result in results:
+            for player_id, model in result.models.items():
+                usage = result.usage_by_player.get(player_id)
+                if usage is None:
+                    continue
+                self.cost.record(model, usage)
+            self.cost.record_game()
 
     def _load_state(self, resume: bool, schedule: list[ScheduledGame]) -> RunState:
         fresh = RunState(
@@ -317,6 +353,16 @@ class _Throttled:
         await self._adapter.aclose()
 
 
+async def _already_judged(game_id: str) -> bool:
+    """Whether a game's chat already carries judge labels."""
+    from ..database.connection import get_async_session
+    from ..database.operations import GameOperations
+
+    async with get_async_session() as session:
+        labels = await GameOperations.get_chat_labels_for_game(session, game_id)
+    return bool(labels)
+
+
 def _async_url(url: str | None) -> str | None:
     """Normalise a config's database URL, creating the directory for a file DB.
 
@@ -348,8 +394,19 @@ def _result_to_json(result: GameResult) -> dict[str, Any]:
         "roles": result.roles,
         "models": result.models,
         "invalid_attempts": result.invalid_attempts,
+        "provider_failures": result.provider_failures,
         "input_tokens": result.input_tokens,
         "output_tokens": result.output_tokens,
+        "aborted": result.aborted,
+        "usage_by_player": {
+            player_id: {
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cache_read_tokens": usage.cache_read_tokens,
+                "cache_write_tokens": usage.cache_write_tokens,
+            }
+            for player_id, usage in result.usage_by_player.items()
+        },
         "error": result.error,
     }
 
@@ -366,7 +423,13 @@ def _result_from_json(payload: dict[str, Any]) -> GameResult:
         roles=dict(payload.get("roles", {})),
         models=dict(payload.get("models", {})),
         invalid_attempts=dict(payload.get("invalid_attempts", {})),
+        provider_failures=dict(payload.get("provider_failures", {})),
         input_tokens=payload.get("input_tokens", 0),
         output_tokens=payload.get("output_tokens", 0),
+        aborted=payload.get("aborted", False),
+        usage_by_player={
+            player_id: TokenUsage(**usage)
+            for player_id, usage in (payload.get("usage_by_player") or {}).items()
+        },
         error=payload.get("error"),
     )

@@ -14,6 +14,7 @@ from secret_agi.match import (
     RunConfig,
     build_schedule,
     load_run_config,
+    max_seat_imbalance,
     parse_run_config,
     seat_balance,
 )
@@ -224,8 +225,13 @@ class TestSchedule:
             assert len(game.assignments) == 5
             assert set(game.assignments) == set(game.player_ids)
 
-    def test_seats_rotate_across_a_mixed_lobby(self):
-        """Seat position is a confound, so no model may be pinned to one seat."""
+    def test_seats_are_exactly_balanced_over_a_full_cycle(self):
+        """The control has to be applied, not merely asserted in the docs.
+
+        A per-game shuffle would leave seat balance to chance; a rotation makes
+        it exact. 40 games is a whole number of 5-seat cycles, so the imbalance
+        must be 0.
+        """
         config = parse_run_config(
             raw_config(
                 games=40,
@@ -236,10 +242,42 @@ class TestSchedule:
             )
         )
 
-        balance = seat_balance(build_schedule(config))
+        schedule = build_schedule(config)
+        balance = seat_balance(schedule)
 
+        assert max_seat_imbalance(schedule) == 0
         for model, seats in balance.items():
             assert len(seats) == 5, f"{model} never occupied some seats"
+            assert len(set(seats.values())) == 1, (
+                f"{model} occupied seats unevenly: {seats}"
+            )
+
+    @pytest.mark.parametrize("games", [20, 21, 22, 23, 24, 25, 40])
+    def test_partial_cycles_stay_within_the_documented_bound(self, games):
+        """Game counts are rarely a multiple of the table size.
+
+        A leftover partial cycle can only skew seats by the size of that
+        remainder, from either end — never more.
+        """
+        config = parse_run_config(
+            raw_config(
+                games=games,
+                players=[
+                    {"provider": "mock", "model": "a", "seats": 3},
+                    {"provider": "mock", "model": "b", "seats": 2},
+                ],
+            )
+        )
+
+        remainder = games % 5
+        bound = min(remainder, 5 - remainder) if remainder else 0
+
+        assert max_seat_imbalance(build_schedule(config)) <= bound
+
+    def test_a_self_play_run_is_trivially_balanced(self):
+        config = parse_run_config(raw_config(games=17))
+
+        assert max_seat_imbalance(build_schedule(config)) == 0
 
     def test_model_of_resolves_a_seat(self):
         game = build_schedule(parse_run_config(raw_config()))[0]

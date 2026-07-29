@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +19,7 @@ from ..engine.game_engine import GameEngine
 from ..engine.models import ActionType, GameConfig, GameState
 from ..players.base_player import BasePlayer
 from ..players.llm_player import LLMPlayer
+from ..providers.base import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,11 @@ class GameResult:
     invalid_attempts: dict[str, int] = field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
+    provider_failures: dict[str, int] = field(default_factory=dict)
+    usage_by_player: dict[str, TokenUsage] = field(default_factory=dict)
+    """Per-seat spend, so a resumed run can restore its cost totals."""
+    aborted: bool = False
+    """Stopped mid-game by the run's cost cap."""
     error: str | None = None
 
 
@@ -56,6 +62,8 @@ class GameRunner:
         max_turns: int = DEFAULT_MAX_TURNS,
         probe_each_round: bool = False,
         engine: GameEngine | None = None,
+        on_usage: Callable[[str, TokenUsage], None] | None = None,
+        should_abort: Callable[[], bool] | None = None,
     ) -> None:
         if len(players) != config.player_count:
             raise ValueError(
@@ -67,6 +75,11 @@ class GameRunner:
         self.max_turns = max_turns
         self.probe_each_round = probe_each_round
         self.engine = engine or GameEngine(database_url=database_url)
+        # Reported after every model call so a run-level cost cap can see spend
+        # as it happens rather than only when the game ends.
+        self._on_usage = on_usage
+        self._should_abort = should_abort
+        self.aborted = False
         self._probed_rounds: set[int] = set()
         # Seeded from the game config so fallbacks stay reproducible.
         self._rng = random.Random(config.seed)
@@ -97,9 +110,21 @@ class GameRunner:
 
         return self._build_result(game_id, final_state, error)
 
+    def _record_usage(self, player: BasePlayer) -> None:
+        """Report a model call's spend to the run-level cost tracker."""
+        if self._on_usage is not None and isinstance(player, LLMPlayer):
+            self._on_usage(player.model_name, player.last_usage)
+
     async def _play(self, game_id: str) -> None:
         turns = 0
         while not self.engine.is_game_over() and turns < self.max_turns:
+            if self._should_abort is not None and self._should_abort():
+                # A single game can be thousands of decisions; the cap has to be
+                # able to stop one mid-flight, not just refuse to start the next.
+                logger.warning("game %s aborted: run cost cap reached", game_id)
+                self.aborted = True
+                return
+
             state = self.engine.debug_get_full_state()
             if state is None:
                 break
@@ -128,6 +153,7 @@ class GameRunner:
                 logger.exception("player %s raised while choosing", player_id)
                 action, params = self.engine.random_valid_action(player_id, self._rng)
 
+            self._record_usage(player)
             await self._record_metrics(player, state.turn_number)
 
             result = await self.engine.perform_action(player_id, action, **params)
@@ -232,6 +258,8 @@ class GameRunner:
             if view is None:
                 continue
             report = await player.probe_beliefs(view)
+            if self._on_usage is not None:
+                self._on_usage(player.model_name, report.usage)
             if not report.beliefs:
                 continue
             async with get_async_session() as session:
@@ -255,12 +283,16 @@ class GameRunner:
 
         models: dict[str, str] = {}
         invalid: dict[str, int] = {}
+        failures: dict[str, int] = {}
+        usage: dict[str, TokenUsage] = {}
         input_tokens = 0
         output_tokens = 0
         for player_id, player in self.players.items():
             if isinstance(player, LLMPlayer):
                 models[player_id] = player.model_name
                 invalid[player_id] = player.total_invalid_attempts
+                failures[player_id] = player.provider_failures
+                usage[player_id] = player.total_usage
                 input_tokens += player.total_usage.input_tokens
                 output_tokens += player.total_usage.output_tokens
             else:
@@ -279,6 +311,9 @@ class GameRunner:
             invalid_attempts=invalid,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            provider_failures=failures,
+            usage_by_player=usage,
+            aborted=self.aborted,
             error=error,
         )
 

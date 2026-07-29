@@ -23,6 +23,7 @@ from .base import (
     TokenUsage,
     ToolDefinition,
 )
+from .retry import with_retries
 from .tools import PROBE_TOOL
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class OpenAIAdapter:
         reasoning_effort: str | None = None,
         max_retries: int = 3,
         timeout_seconds: float = 120.0,
+        transient_attempts: int = 4,
     ) -> None:
         from openai import AsyncOpenAI
 
@@ -54,6 +56,7 @@ class OpenAIAdapter:
         self._temperature = temperature
         self._reasoning_effort = reasoning_effort
         self._max_retries = max_retries
+        self._transient_attempts = transient_attempts
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -77,7 +80,19 @@ class OpenAIAdapter:
         usage = TokenUsage()
 
         for attempt in range(self._max_retries):
-            response = await self._create(messages, ctx.tools)
+            try:
+                response = await self._create(messages, ctx.tools)
+            except ProviderError:
+                # Retries are exhausted. Mark the turn so analysis can drop it
+                # instead of scoring harness noise as a model decision.
+                logger.exception("provider unreachable for %s", self._model)
+                return Decision(
+                    action="observe",
+                    usage=usage,
+                    latency_ms=_elapsed_ms(started),
+                    invalid_attempts=invalid_attempts,
+                    provider_failure=True,
+                )
             usage = usage + _usage_from(response)
             choice = response.choices[0].message
             calls = choice.tool_calls or []
@@ -130,7 +145,13 @@ class OpenAIAdapter:
     async def probe(self, ctx: ProbeContext) -> BeliefReport:
         started = time.monotonic()
         messages = _render_messages(ctx.system_prompt, ctx.conversation)
-        response = await self._create(messages, [PROBE_TOOL], force_tool=PROBE_TOOL.name)
+        try:
+            response = await self._create(
+                messages, [PROBE_TOOL], force_tool=PROBE_TOOL.name
+            )
+        except ProviderError:
+            logger.exception("probe unreachable for %s", self._model)
+            return BeliefReport(latency_ms=_elapsed_ms(started), invalid_attempts=1)
         usage = _usage_from(response)
         calls = response.choices[0].message.tool_calls or []
 
@@ -189,9 +210,16 @@ class OpenAIAdapter:
         if self._reasoning_effort is not None:
             kwargs["reasoning_effort"] = self._reasoning_effort
 
-        try:
+        async def call() -> Any:
             return await self._client.chat.completions.create(**kwargs)
-        except Exception as exc:  # provider/network failure
+
+        try:
+            return await with_retries(
+                call,
+                attempts=self._transient_attempts,
+                label=f"OpenAI {self._model}",
+            )
+        except Exception as exc:  # non-transient, or retries exhausted
             raise ProviderError(f"OpenAI call failed for {self._model}: {exc}") from exc
 
 
@@ -213,6 +241,8 @@ def _usage_from(response: Any) -> TokenUsage:
     if details is not None:
         cached = getattr(details, "cached_tokens", 0) or 0
 
+    # OpenAI's prompt_tokens already includes cached tokens, which is the
+    # convention TokenUsage uses, so this passes through unchanged.
     return TokenUsage(
         input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
         output_tokens=getattr(usage, "completion_tokens", 0) or 0,

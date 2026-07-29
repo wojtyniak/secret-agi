@@ -23,7 +23,7 @@ def render_board(state: GameState, player_id: str) -> str:
         f"Round {state.round_number}, phase {state.current_phase.value}",
         f"Director: {state.current_director.id}",
         f"Failed proposals: {state.failed_proposals}/3",
-        f"Papers left in deck: {len(state.deck) if state.deck else 'unknown'}",
+        f"Papers left in deck: {_deck_count(state)}",
     ]
 
     if state.nominated_engineer_id:
@@ -73,22 +73,28 @@ def render_private_knowledge(state: GameState, player_id: str) -> str:
             for p in state.engineer_cards
         )
 
-    if state.team_votes:
-        lines.append("## Votes cast on the current team")
-        lines.extend(
-            f"- {voter}: {'yes' if vote else 'no'}"
-            for voter, vote in state.team_votes.items()
+    # Only the viewer's own vote survives filtering while a ballot is pending, so
+    # this can never show a running tally of an unresolved vote. Voting is
+    # simultaneous; results reach players through the VOTE_COMPLETED event.
+    own_team_vote = state.team_votes.get(player_id)
+    if own_team_vote is not None:
+        lines.append(
+            f"## Your vote on the current team\n- you voted "
+            f"{'yes' if own_team_vote else 'no'}"
         )
 
     if state.emergency_safety_called:
         lines.append("## Emergency Safety vote in progress")
-        if state.emergency_votes:
-            lines.extend(
-                f"- {voter}: {'yes' if vote else 'no'}"
-                for voter, vote in state.emergency_votes.items()
-            )
+        own_emergency_vote = state.emergency_votes.get(player_id)
+        if own_emergency_vote is not None:
+            lines.append(f"- you voted {'yes' if own_emergency_vote else 'no'}")
 
     return "\n".join(lines)
+
+
+def _deck_count(state: GameState) -> int:
+    """Papers left in the deck — public information under the rules."""
+    return state.deck_count if state.deck_count is not None else len(state.deck)
 
 
 def render_chat(state: GameState, limit: int | None = None) -> str:

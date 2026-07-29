@@ -18,12 +18,34 @@ from typing import Any, Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class TokenUsage:
-    """Token accounting for a single provider call."""
+    """Token accounting for a single provider call.
+
+    **One convention, enforced at every adapter boundary:** `input_tokens` is the
+    *total* prompt size, including anything served from or written to cache.
+    `cache_read_tokens` and `cache_write_tokens` are therefore breakdowns *of*
+    `input_tokens`, not additions to it.
+
+    The providers disagree natively — OpenAI's `prompt_tokens` includes cached
+    tokens, Anthropic's `input_tokens` excludes them — so leaving the raw numbers
+    alone would make an Anthropic model's recorded prompt size collapse to a few
+    percent of the truth whenever caching is on, wrecking every cross-provider
+    token and cost comparison. Each adapter normalises before constructing this.
+    """
 
     input_tokens: int = 0
+    """Total prompt tokens, inclusive of cache reads and writes."""
+
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    """Portion of `input_tokens` served from cache."""
+
     cache_write_tokens: int = 0
+    """Portion of `input_tokens` written to cache."""
+
+    @property
+    def uncached_input_tokens(self) -> int:
+        """Prompt tokens billed at the full input rate."""
+        return max(0, self.input_tokens - self.cache_read_tokens - self.cache_write_tokens)
 
     @property
     def total_tokens(self) -> int:
@@ -109,6 +131,11 @@ class Decision:
 
     invalid_attempts: int = 0
     """Malformed or unknown tool calls the adapter had to retry past."""
+
+    provider_failure: bool = False
+    """The provider never answered (retries exhausted). This turn is harness
+    noise, not model behaviour, and analysis should exclude it rather than
+    score it."""
 
 
 @dataclass

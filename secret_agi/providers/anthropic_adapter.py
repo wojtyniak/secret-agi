@@ -23,11 +23,15 @@ from .base import (
     ToolDefinition,
 )
 from .openai_adapter import _parse_beliefs
+from .retry import with_retries
 from .tools import PROBE_TOOL
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_TOKENS = 2048
+
+# The API requires max_tokens > thinking budget; leave room for the answer too.
+_THINKING_HEADROOM = 2048
 
 
 class AnthropicAdapter:
@@ -45,6 +49,7 @@ class AnthropicAdapter:
         max_retries: int = 3,
         timeout_seconds: float = 120.0,
         prompt_caching: bool = True,
+        transient_attempts: int = 4,
     ) -> None:
         from anthropic import AsyncAnthropic
 
@@ -55,10 +60,25 @@ class AnthropicAdapter:
             )
 
         self._model = model
-        self._temperature = temperature
         self._thinking_budget_tokens = thinking_budget_tokens
+        # Extended thinking constrains two other parameters, and violating either
+        # makes the API reject *every* call — which would degrade the whole run to
+        # random fallbacks. Reconcile once, here, rather than per request.
+        if thinking_budget_tokens is not None:
+            if temperature is not None and temperature != 1.0:
+                logger.warning(
+                    "temperature=%s ignored for %s: extended thinking requires "
+                    "temperature=1",
+                    temperature,
+                    model,
+                )
+            self._temperature = None
+            max_tokens = max(max_tokens, thinking_budget_tokens + _THINKING_HEADROOM)
+        else:
+            self._temperature = temperature
         self._max_tokens = max_tokens
         self._max_retries = max_retries
+        self._transient_attempts = transient_attempts
         self._prompt_caching = prompt_caching
         self._client = AsyncAnthropic(
             api_key=api_key,
@@ -83,7 +103,17 @@ class AnthropicAdapter:
         usage = TokenUsage()
 
         for attempt in range(self._max_retries):
-            response = await self._create(ctx.system_prompt, messages, ctx.tools)
+            try:
+                response = await self._create(ctx.system_prompt, messages, ctx.tools)
+            except ProviderError:
+                logger.exception("provider unreachable for %s", self._model)
+                return Decision(
+                    action="observe",
+                    usage=usage,
+                    latency_ms=_elapsed_ms(started),
+                    invalid_attempts=invalid_attempts,
+                    provider_failure=True,
+                )
             usage = usage + _usage_from(response)
             tool_use, text = _split_content(response)
 
@@ -125,21 +155,55 @@ class AnthropicAdapter:
     async def probe(self, ctx: ProbeContext) -> BeliefReport:
         started = time.monotonic()
         messages = _render_messages(ctx.conversation)
-        response = await self._create(
-            ctx.system_prompt, messages, [PROBE_TOOL], force_tool=PROBE_TOOL.name
-        )
-        usage = _usage_from(response)
-        tool_use, _ = _split_content(response)
+        usage = TokenUsage()
+        invalid_attempts = 0
 
-        if tool_use is None or not isinstance(tool_use.input, dict):
-            return BeliefReport(
-                usage=usage, latency_ms=_elapsed_ms(started), invalid_attempts=1
-            )
+        # With extended thinking on, tool choice cannot be forced, so the model
+        # may answer in prose. Retry with an explicit nudge instead of silently
+        # returning no beliefs — probes feed Gullibility and Poker Face, and a
+        # quiet gap there looks like missing data rather than a broken run.
+        for attempt in range(self._max_retries):
+            try:
+                response = await self._create(
+                    ctx.system_prompt, messages, [PROBE_TOOL], force_tool=PROBE_TOOL.name
+                )
+            except ProviderError:
+                logger.exception("probe unreachable for %s", self._model)
+                return BeliefReport(
+                    usage=usage,
+                    latency_ms=_elapsed_ms(started),
+                    invalid_attempts=invalid_attempts + 1,
+                )
+
+            usage = usage + _usage_from(response)
+            tool_use, _ = _split_content(response)
+
+            if tool_use is not None and isinstance(tool_use.input, dict):
+                return BeliefReport(
+                    beliefs=_parse_beliefs(
+                        dict(tool_use.input), ctx.target_player_ids
+                    ),
+                    usage=usage,
+                    latency_ms=_elapsed_ms(started),
+                    invalid_attempts=invalid_attempts,
+                )
+
+            invalid_attempts += 1
+            if attempt < self._max_retries - 1:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You must report your estimates by calling the "
+                            f"{PROBE_TOOL.name} tool. Please call it now."
+                        ),
+                    }
+                )
 
         return BeliefReport(
-            beliefs=_parse_beliefs(dict(tool_use.input), ctx.target_player_ids),
             usage=usage,
             latency_ms=_elapsed_ms(started),
+            invalid_attempts=invalid_attempts,
         )
 
     async def aclose(self) -> None:
@@ -186,9 +250,16 @@ class AnthropicAdapter:
             # Extended thinking is incompatible with forced tool choice.
             kwargs["tool_choice"] = {"type": "auto"}
 
-        try:
+        async def call() -> Any:
             return await self._client.messages.create(**kwargs)
-        except Exception as exc:  # provider/network failure
+
+        try:
+            return await with_retries(
+                call,
+                attempts=self._transient_attempts,
+                label=f"Anthropic {self._model}",
+            )
+        except Exception as exc:  # non-transient, or retries exhausted
             raise ProviderError(
                 f"Anthropic call failed for {self._model}: {exc}"
             ) from exc
@@ -219,11 +290,17 @@ def _usage_from(response: Any) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage()
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    # Anthropic reports input_tokens EXCLUDING cached tokens; TokenUsage's
+    # convention is that input_tokens is the total prompt. Add them back, or an
+    # Anthropic model's prompt size collapses to a few percent of the truth as
+    # soon as caching starts hitting.
     return TokenUsage(
-        input_tokens=getattr(usage, "input_tokens", 0) or 0,
+        input_tokens=(getattr(usage, "input_tokens", 0) or 0) + cache_read + cache_write,
         output_tokens=getattr(usage, "output_tokens", 0) or 0,
-        cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-        cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        cache_read_tokens=cache_read,
+        cache_write_tokens=cache_write,
     )
 
 

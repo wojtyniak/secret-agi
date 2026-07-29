@@ -12,7 +12,12 @@ from .config import (
 from .cost import BudgetExceeded, CostTracker, ModelPrice
 from .game_runner import GameResult, GameRunner, run_game, summarise_results
 from .runner import RunOrchestrator, RunReport, RunState
-from .schedule import ScheduledGame, build_schedule, seat_balance
+from .schedule import (
+    ScheduledGame,
+    build_schedule,
+    max_seat_imbalance,
+    seat_balance,
+)
 
 __all__ = [
     "BudgetExceeded",
@@ -31,6 +36,7 @@ __all__ = [
     "ScheduledGame",
     "build_schedule",
     "load_run_config",
+    "max_seat_imbalance",
     "parse_run_config",
     "run_game",
     "seat_balance",

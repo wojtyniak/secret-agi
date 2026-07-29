@@ -16,16 +16,39 @@ from ..settings import get_database_url
 # Global engine and session maker
 _engine = None
 _async_session_maker = None
+_engine_url: str | None = None
 
 logger = logging.getLogger(__name__)
 
 
-async def init_database(database_url: str | None = None, echo: bool = False) -> None:
-    """Initialize the database connection and create tables."""
-    global _engine, _async_session_maker
+async def init_database(
+    database_url: str | None = None, echo: bool = False, force: bool = False
+) -> None:
+    """Initialize the database connection and create tables.
+
+    Idempotent for a URL that is already initialized. Concurrent games each call
+    this, and rebuilding the engine underneath them would swap the global
+    sessionmaker mid-run while sessions minted from the previous one were still
+    open, leak a connection pool per game, and point several independent SQLite
+    pools at the same file. Pass `force=True` to deliberately rebind.
+    """
+    global _engine, _async_session_maker, _engine_url
 
     if database_url is None:
         database_url = get_database_url()
+
+    # An in-memory database lives inside its engine, so two engines on the same
+    # ":memory:" URL are two different databases and "already initialized" is
+    # meaningless. Only file-backed URLs — the ones concurrent runs actually use
+    # — can be safely shared.
+    in_memory = ":memory:" in database_url
+    if not force and not in_memory and _engine is not None and _engine_url == database_url:
+        logger.debug("database already initialized for %s", database_url)
+        return
+
+    if _engine is not None:
+        # Rebinding to a different URL: dispose the old pool rather than leak it.
+        await _engine.dispose()
 
     # Create async engine
     _engine = create_async_engine(
@@ -72,6 +95,7 @@ async def init_database(database_url: str | None = None, echo: bool = False) -> 
             async with _engine.begin() as conn:
                 await conn.run_sync(SQLModel.metadata.create_all)
 
+    _engine_url = database_url
     logger.info(f"Database initialized with URL: {database_url}")
 
 
@@ -94,11 +118,12 @@ async def get_async_session() -> AsyncGenerator[AsyncSession]:
 
 async def close_database() -> None:
     """Close the database connection."""
-    global _engine, _async_session_maker
+    global _engine, _async_session_maker, _engine_url
     if _engine:
         await _engine.dispose()
         _engine = None
         _async_session_maker = None
+        _engine_url = None
         logger.info("Database connection closed")
 
 

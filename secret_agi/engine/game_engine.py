@@ -29,6 +29,19 @@ from .rules import GameRules
 
 logger = logging.getLogger(__name__)
 
+# Actions a stand-in can take that only advance the round, never spend a
+# one-shot strategic option on the agent's behalf.
+_PROGRESS_ACTIONS = frozenset(
+    {
+        ActionType.NOMINATE,
+        ActionType.VOTE_TEAM,
+        ActionType.VOTE_EMERGENCY,
+        ActionType.DISCARD_PAPER,
+        ActionType.PUBLISH_PAPER,
+        ActionType.SEND_CHAT_MESSAGE,
+    }
+)
+
 
 class GameEngine:
     """
@@ -147,6 +160,10 @@ class GameEngine:
                     self._current_state = reconstructed_state
                     self._game_id = game_id
                     self.state_manager.save_state_snapshot(reconstructed_state)
+                    # Reseed from the loaded position: create_game is the only
+                    # other place the RNG is set, so without this a resumed game
+                    # stops being reproducible the moment a fallback fires.
+                    self._reseed_from_state(reconstructed_state)
 
                     return True
                 except Exception:
@@ -154,6 +171,14 @@ class GameEngine:
                     return False
 
             return False
+
+    def _reseed_from_state(self, state: GameState) -> None:
+        """Derive a deterministic RNG for a game loaded mid-flight.
+
+        Keyed on the game id and turn so that reloading the same position always
+        yields the same stream — a resumed run must reproduce an uninterrupted one.
+        """
+        self._rng = random.Random(f"{state.game_id}:{state.turn_number}")
 
     def _reconstruct_game_state(
         self, state_data: dict[str, Any], game_id: str
@@ -631,7 +656,13 @@ class GameEngine:
         if not actionable:
             return ActionType.OBSERVE, {}
 
-        action = chooser.choice(actionable)
+        # Prefer the actions that merely keep the game moving. A broken agent
+        # should not get to spend the phase's single Emergency Safety call, or
+        # declare a veto that discards the whole round — all rules-valid, but it
+        # makes an agent failure far more game-distorting than it needs to be,
+        # and those distortions land in the behavioural metrics.
+        preferred = [a for a in actionable if a in _PROGRESS_ACTIONS]
+        action = chooser.choice(preferred or actionable)
         return action, self._generate_random_action_params(action, player_id)
 
     def _generate_random_action_params(
@@ -722,6 +753,7 @@ class GameEngine:
                     self._current_state = state
                     self._game_id = game_id
                     self.state_manager.save_state_snapshot(state)
+                    self._reseed_from_state(state)
 
                     return {
                         "success": True,

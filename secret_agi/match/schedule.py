@@ -4,8 +4,12 @@ Two confounds this removes:
 
 - **Seat position.** The starting Director is chosen at random, and turn order is
   clockwise from there, so a model that always occupies seat 0 does not play the
-  same game as one that always occupies seat 4. Seat assignments are rotated so
-  every model spends an equal share of games in every seat.
+  same game as one that always occupies seat 4. Seat assignments are *rotated*:
+  one seeded ordering per run, then a pure rotation of it per game. When the
+  game count is a multiple of the table size the balance is **exact**; otherwise
+  the leftover partial cycle leaves a gap of at most
+  `min(games mod seats, seats - games mod seats)`. `max_seat_imbalance()`
+  reports the realised figure, which every run report carries.
 - **Role assignment.** Roles are dealt by the engine from the game seed. Because
   each game's seed is derived deterministically from the run seed, the whole
   schedule is reproducible from `(run seed, config)` alone — which is what makes
@@ -53,12 +57,18 @@ def build_schedule(config: RunConfig) -> list[ScheduledGame]:
     seats = config.seat_models
     rng = random.Random(config.seed)
 
+    # One shuffled base ordering per run, then a pure rotation of it per game.
+    # Shuffling *per game* would destroy the rotation — a uniform shuffle of a
+    # rotated list is just a uniform shuffle — leaving seat balance to chance,
+    # which is exactly the confound the rotation exists to remove. Shuffling once
+    # keeps the run from always starting model A in seat 0 while preserving the
+    # exact ±1 balance a rotation gives.
+    base = list(seats)
+    rng.shuffle(base)
+
     games: list[ScheduledGame] = []
     for index in range(config.games):
-        rotated = _rotate(seats, index)
-        # Shuffle within the rotation so repeated games do not lock the same
-        # models into the same relative order.
-        arrangement = _seeded_shuffle(rotated, rng)
+        arrangement = _rotate(base, index)
         games.append(
             ScheduledGame(
                 index=index,
@@ -96,9 +106,15 @@ def _rotate(seats: list[PlayerConfig], offset: int) -> list[PlayerConfig]:
     return seats[shift:] + seats[:shift]
 
 
-def _seeded_shuffle(
-    seats: list[PlayerConfig], rng: random.Random
-) -> list[PlayerConfig]:
-    arrangement = list(seats)
-    rng.shuffle(arrangement)
-    return arrangement
+def max_seat_imbalance(games: list[ScheduledGame]) -> int:
+    """Largest gap between a model's most- and least-occupied seat.
+
+    0 or 1 means the rotation is doing its job. Reported so the control can be
+    checked rather than asserted.
+    """
+    worst = 0
+    seats = {player_id for game in games for player_id in game.player_ids}
+    for counts in seat_balance(games).values():
+        occupancy = [counts.get(seat, 0) for seat in seats]
+        worst = max(worst, max(occupancy) - min(occupancy))
+    return worst

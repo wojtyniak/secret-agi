@@ -96,14 +96,51 @@ raised `BudgetExceeded` *after* the game had finished — discarding the result 
 game whose tokens had already been spent. Two tests failed with
 `games_completed == 0`.
 
-The pre-start gate is now the only gate. A game in flight always finishes and its
-result is always kept.
+The pre-start gate was the fix at the time. Review then pointed out the other
+half: a gate that only fires *between* games cannot stop a single runaway game.
+Spend is now recorded per model call and checked between decisions, so a game can
+be cut short and flagged `aborted` — while a game that finishes normally still
+keeps its result.
 
 ---
 
 ## 3. Known warts
 
 Real, small, and worth knowing before you trust a number.
+
+### Fixed in review, kept here as history
+
+The first round of review caught a set of issues that are now resolved; they are
+worth knowing about because each one was silent — nothing failed, the numbers
+were just wrong.
+
+| Issue | Why it mattered |
+|---|---|
+| Pending vote tallies leaked to later voters | The deciding voter saw the split. A systematic advantage correlated with seat order — the confound the seat rotation exists to remove |
+| Transient provider errors were never retried | One 429 became a *random* nomination in the transcript, indistinguishable from the model's own choice |
+| Token semantics differed across providers | Anthropic excludes cache tokens from `input_tokens`, OpenAI includes them; cross-provider cost comparisons were off by up to an order of magnitude |
+| Pricing assumed OpenAI semantics | Cache-read subtraction double-discounted Anthropic and often clamped billed input to zero |
+| Extended thinking produced guaranteed-400s | `max_tokens` below the thinking budget, plus a temperature the API rejects |
+| The seat "rotation" was a shuffle | A uniform shuffle of a rotated list is a shuffle; the documented control did not exist |
+| Resume re-judged restored games | Doubled judge spend and duplicated every `ChatLabel`, inflating `n` and narrowing CIs |
+| Resume reset the cost tracker | A run capped at $50 and killed at $49 could spend another $50 |
+| The cost cap could not stop a runaway game | It only gated game *starts*; spend is now recorded per decision |
+| The judge saw only roles and chat | METHODOLOGY promised private knowledge; the highest-value deception claims were unjudgeable |
+| `necessary` was optional on a lie | Lies without a verdict vanished from Backstab Rate — asymmetrically, for evil roles only |
+| The bootstrap treated seats as independent | Published intervals were too narrow, on the numbers the benchmark sells itself on |
+| Circle of Trust matched votes by turn distance | Could score a vote on one proposal against an ally's vote on the next |
+| Every game re-initialized the global DB engine | A race by construction: swapped the sessionmaker mid-run and leaked a pool per game |
+| Deck count always rendered "unknown" | Public information under the rules, and deck exhaustion is a win condition |
+| The fallback could burn one-shot actions | A broken agent could spend the phase's Emergency Safety call or veto a round away |
+
+Two of these are worth internalising rather than just noting. **The seat-rotation
+bug is the cautionary one:** the docstring, METHODOLOGY and a passing test all
+described a control that the code did not implement, because the test only
+checked that each model touched each seat *at least once*. A control that is
+asserted but not measured is not a control. The replacement asserts exact
+counts. **The cluster-bootstrap bug is the expensive one:** it would have shipped
+intervals that were simply too narrow, on precisely the numbers this benchmark
+asks to be trusted on.
 
 ### `tokens_per_game` on a scorecard excludes probe tokens
 
@@ -122,6 +159,15 @@ questions and the scorecard does not say which one it is answering.
 **Recommendation:** either write an `AgentMetric` row for probes with a
 `kind` column, or rename the scorecard field to `decision_tokens_per_game`. The
 second is a one-line fix and I would do it before publishing any cost column.
+
+### The `necessary` fallback is a judgement call
+
+When the judge labels a lie but omits `necessary`, the pipeline asks once more
+and then defaults to **unnecessary** — counting it as excess deception. The
+alternative (dropping it) biases Backstab Rate downward for evil roles only,
+which is worse. But it does mean a judge that systematically omits the field
+would inflate the metric rather than deflate it. The occurrence is logged; if
+the calibration exercise (§4) shows it happening often, this needs revisiting.
 
 ### Discussion state lingers after a game-ending action
 

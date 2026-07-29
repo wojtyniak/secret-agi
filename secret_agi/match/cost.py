@@ -20,24 +20,40 @@ from ..providers.base import TokenUsage
 
 @dataclass(frozen=True)
 class ModelPrice:
-    """USD per million tokens."""
+    """USD per million tokens.
+
+    Four explicit terms, because providers bill four different things and
+    collapsing them silently mis-prices whichever provider does not match the
+    assumed convention. This relies on `TokenUsage`'s normalization: input_tokens
+    is the *total* prompt, with cache reads and writes as breakdowns of it.
+    """
 
     input_per_million: float
+    """Uncached prompt tokens."""
+
     output_per_million: float
+
     cache_read_per_million: float | None = None
+    """Defaults to a tenth of the input rate, the common discount."""
+
+    cache_write_per_million: float | None = None
+    """Defaults to 1.25x the input rate, matching Anthropic's surcharge."""
 
     def cost(self, usage: TokenUsage) -> float:
-        cached_rate = (
+        read_rate = (
             self.cache_read_per_million
             if self.cache_read_per_million is not None
-            else self.input_per_million
+            else self.input_per_million * 0.1
         )
-        # Cached reads are billed at the cheaper rate and are already counted in
-        # input_tokens, so charge the difference back rather than double-counting.
-        billed_input = max(0, usage.input_tokens - usage.cache_read_tokens)
+        write_rate = (
+            self.cache_write_per_million
+            if self.cache_write_per_million is not None
+            else self.input_per_million * 1.25
+        )
         return (
-            billed_input * self.input_per_million
-            + usage.cache_read_tokens * cached_rate
+            usage.uncached_input_tokens * self.input_per_million
+            + usage.cache_read_tokens * read_rate
+            + usage.cache_write_tokens * write_rate
             + usage.output_tokens * self.output_per_million
         ) / 1_000_000
 

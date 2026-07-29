@@ -99,6 +99,77 @@ def mean(values: Sequence[float], **kwargs: object) -> Estimate:
     return bootstrap(list(values), **kwargs)  # type: ignore[arg-type]
 
 
+def cluster_bootstrap(
+    clusters: Sequence[Sequence[float]],
+    *,
+    samples: int = DEFAULT_BOOTSTRAP_SAMPLES,
+    confidence: float = DEFAULT_CONFIDENCE,
+    seed: int = 0,
+) -> Estimate:
+    """Bootstrap a mean by resampling *clusters*, not individual observations.
+
+    The observations this benchmark produces are not independent. In a self-play
+    run one model holds every seat of every game, so 20 games yield 100 "win"
+    observations that are strongly correlated within a game — faction win rates
+    are complementary by construction. Per-message metrics correlate within a
+    speaker-game the same way.
+
+    Treating those as i.i.d. makes the interval too narrow, which is the one
+    failure mode a benchmark selling itself on confidence intervals cannot
+    afford. Resampling whole games keeps each game's observations together and
+    preserves the within-game correlation.
+
+    Each element of `clusters` is one game's observations for the metric.
+    """
+    groups = [list(c) for c in clusters if len(c) > 0]
+    if not groups:
+        return EMPTY
+
+    flat = [value for group in groups for value in group]
+    total = len(flat)
+    point = sum(flat) / total
+
+    if len(groups) == 1:
+        # A single game carries no between-game information; report the point
+        # estimate with a degenerate interval rather than a fake one.
+        return Estimate(point, point, point, total, confidence)
+
+    rng = random.Random(seed)
+    n = len(groups)
+    resampled = []
+    for _ in range(samples):
+        drawn: list[float] = []
+        for _ in range(n):
+            drawn.extend(groups[rng.randrange(n)])
+        if drawn:
+            resampled.append(sum(drawn) / len(drawn))
+    resampled.sort()
+
+    if not resampled:
+        return Estimate(point, point, point, total, confidence)
+
+    tail = (1.0 - confidence) / 2.0
+    low = resampled[_percentile_index(len(resampled), tail)]
+    high = resampled[_percentile_index(len(resampled), 1.0 - tail)]
+    return Estimate(point, low, high, total, confidence)
+
+
+def cluster_rate(
+    clusters: Sequence[Sequence[bool]],
+    *,
+    samples: int = DEFAULT_BOOTSTRAP_SAMPLES,
+    confidence: float = DEFAULT_CONFIDENCE,
+    seed: int = 0,
+) -> Estimate:
+    """Cluster bootstrap for a proportion."""
+    return cluster_bootstrap(
+        [[1.0 if value else 0.0 for value in group] for group in clusters],
+        samples=samples,
+        confidence=confidence,
+        seed=seed,
+    )
+
+
 def brier_score(probability: float, outcome: bool) -> float:
     """Squared error of a probabilistic forecast. Lower is better; 0 is perfect.
 

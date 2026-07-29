@@ -118,7 +118,8 @@ class TestCostCap:
         assert report.games_completed >= 1
 
     @pytest.mark.asyncio
-    async def test_completed_games_survive_an_early_stop(self, tmp_path):
+    async def test_a_runaway_game_is_stopped_mid_flight(self, tmp_path):
+        """The cap has to be able to stop one long game, not just the next one."""
         orchestrator = RunOrchestrator(
             config(tmp_path, games=4, parallelism=1, max_total_tokens=1),
             run_dir=tmp_path,
@@ -126,8 +127,40 @@ class TestCostCap:
 
         report = await orchestrator.run()
 
+        # The very first decision blows the cap, so game 1 is cut short rather
+        # than running to its natural end.
         assert report.results
-        assert all(r.completed for r in report.results)
+        first = report.results[0]
+        assert first.aborted is True
+        assert first.completed is False
+        assert report.stopped_early is not None
+
+    @pytest.mark.asyncio
+    async def test_completed_games_survive_an_early_stop(self, tmp_path):
+        """Work already paid for is kept when a later game trips the cap."""
+        # Measure one game, then cap just above it so game 1 finishes and game 2
+        # cannot start — rather than hard-coding a token count that would drift.
+        probe = await RunOrchestrator(
+            config(tmp_path / "probe", games=1, parallelism=1),
+            run_dir=tmp_path / "probe",
+        ).run()
+        one_game = probe.cost["total_tokens"]
+
+        report = await RunOrchestrator(
+            config(
+                tmp_path / "capped",
+                games=4,
+                parallelism=1,
+                max_total_tokens=int(one_game * 1.2),
+            ),
+            run_dir=tmp_path / "capped",
+        ).run()
+
+        assert report.stopped_early is not None
+        assert report.games_completed < 4
+        completed = [r for r in report.results if r.completed]
+        assert completed, "the first game should have finished within the cap"
+        assert all(not r.aborted for r in completed)
 
     @pytest.mark.asyncio
     async def test_a_generous_cap_does_not_stop_the_run(self, tmp_path):
@@ -250,6 +283,51 @@ class TestResumability:
         assert report.games_completed == 3
 
     @pytest.mark.asyncio
+    async def test_resume_carries_forward_the_spend_already_made(self, tmp_path):
+        """A run capped at $50 and killed at $49 must not spend another $50."""
+        run_config = config(tmp_path, games=3, parallelism=1)
+        first = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+        spent = first.cost["total_tokens"]
+
+        # Drop the last game, then resume: the tracker must start from the spend
+        # the restored games already made, not from zero.
+        state = json.loads((tmp_path / STATE_FILENAME).read_text())
+        dropped = max(int(k) for k in state["completed"])
+        state["completed"] = {
+            k: v for k, v in state["completed"].items() if int(k) != dropped
+        }
+        (tmp_path / STATE_FILENAME).write_text(json.dumps(state))
+
+        second = await RunOrchestrator(run_config, run_dir=tmp_path).run(resume=True)
+
+        # Totals cover the whole run, not just the replayed game.
+        assert second.cost["total_tokens"] == pytest.approx(spent, rel=0.02)
+
+    @pytest.mark.asyncio
+    async def test_a_resumed_run_cannot_re_arm_its_cost_cap(self, tmp_path):
+        run_config = config(tmp_path, games=2, parallelism=1)
+        first = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+
+        # Cap below what the restored games already spent: resuming must stop
+        # immediately rather than starting a fresh budget.
+        capped = config(
+            tmp_path,
+            games=2,
+            parallelism=1,
+            max_total_tokens=first.cost["total_tokens"] // 2,
+        )
+        state = json.loads((tmp_path / STATE_FILENAME).read_text())
+        state["completed"] = {
+            k: v for k, v in state["completed"].items() if int(k) < 1
+        }
+        (tmp_path / STATE_FILENAME).write_text(json.dumps(state))
+
+        resumed = await RunOrchestrator(capped, run_dir=tmp_path).run(resume=True)
+
+        assert resumed.stopped_early is not None
+        assert resumed.games_completed == 1  # only the restored game
+
+    @pytest.mark.asyncio
     async def test_a_run_without_a_directory_keeps_no_state(self, tmp_path):
         report = await RunOrchestrator(config(tmp_path), run_dir=None).run()
 
@@ -277,6 +355,66 @@ class TestJudgeIntegration:
 
         assert labels
         assert all(row.judge_model == "mock-judge" for row in labels)
+
+    @pytest.mark.asyncio
+    async def test_resuming_does_not_re_judge_restored_games(self, tmp_path):
+        """Re-judging would double the judge bill and duplicate every label."""
+        from secret_agi.database.connection import get_async_session
+        from secret_agi.database.operations import GameOperations
+
+        run_config = config(
+            tmp_path,
+            games=2,
+            parallelism=1,
+            judge={"enabled": True, "provider": "mock", "model": "mock-judge"},
+        )
+        first = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+
+        async def label_counts(report):
+            counts = {}
+            async with get_async_session() as session:
+                for result in report.results:
+                    labels = await GameOperations.get_chat_labels_for_game(
+                        session, result.game_id
+                    )
+                    counts[result.game_id] = len(labels)
+            return counts
+
+        before = await label_counts(first)
+        assert before and all(count > 0 for count in before.values())
+
+        # Drop one game from the state, as a kill mid-run would, then resume.
+        state = json.loads((tmp_path / STATE_FILENAME).read_text())
+        state["completed"] = {
+            k: v for k, v in state["completed"].items() if int(k) < 1
+        }
+        (tmp_path / STATE_FILENAME).write_text(json.dumps(state))
+
+        second = await RunOrchestrator(run_config, run_dir=tmp_path).run(resume=True)
+        after = await label_counts(second)
+
+        # A replayed game gets a fresh game id, so only the *restored* games
+        # appear in both runs — and those are exactly the ones that must not
+        # have been judged a second time.
+        restored = set(before) & set(after)
+        assert restored, "expected at least one game to be carried over"
+        for game_id in restored:
+            assert after[game_id] == before[game_id], (
+                f"game {game_id} was judged twice on resume "
+                f"({before[game_id]} labels became {after[game_id]})"
+            )
+
+    @pytest.mark.asyncio
+    async def test_judge_spend_is_counted(self, tmp_path):
+        run_config = config(
+            tmp_path,
+            games=1,
+            judge={"enabled": True, "provider": "mock", "model": "mock-judge"},
+        )
+        report = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+
+        assert "mock-judge" in report.cost["per_model"]
+        assert report.cost["per_model"]["mock-judge"]["input_tokens"] > 0
 
     @pytest.mark.asyncio
     async def test_a_disabled_judge_writes_no_labels(self, tmp_path):

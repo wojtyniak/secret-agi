@@ -164,6 +164,10 @@ class GameState:
     deck: list[Paper] = field(default_factory=list)
     discard: list[Paper] = field(default_factory=list)
 
+    # Deck contents are private but the count is public. On an unfiltered state
+    # this mirrors len(deck); on a filtered view it survives the emptied list.
+    deck_count: int | None = None
+
     # Turn management
     current_director_index: int = 0
     failed_proposals: int = 0

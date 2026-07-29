@@ -441,3 +441,104 @@ class TestEventLogging:
 
         # Verify we have more events than we started with
         assert len(state.events) > initial_event_count
+
+
+class TestPendingBallotsAreHidden:
+    """Voting is simultaneous: a pending ballot must not leak to later voters."""
+
+    @pytest.mark.asyncio
+    async def test_later_voters_cannot_see_the_running_tally(self):
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
+        await engine.create_game(
+            GameConfig(5, [f"p{i}" for i in range(5)], seed=42)
+        )
+
+        state = engine.debug_get_full_state()
+        assert state is not None
+        director = state.current_director.id
+        target = next(p.id for p in state.alive_players if p.id != director)
+        await engine.perform_action(director, ActionType.NOMINATE, target_id=target)
+
+        voters = [p.id for p in state.alive_players]
+        # Everyone but the last voter casts a ballot.
+        for voter in voters[:-1]:
+            result = await engine.perform_action(voter, ActionType.VOTE_TEAM, vote=True)
+            assert result.success is True
+
+        # The deciding voter must not see how anyone else voted.
+        last = voters[-1]
+        view = engine.get_game_state(last)
+        assert view is not None
+        assert view.team_votes == {}
+
+        # ...and an earlier voter sees only their own ballot.
+        earlier_view = engine.get_game_state(voters[0])
+        assert earlier_view is not None
+        assert earlier_view.team_votes == {voters[0]: True}
+
+    @pytest.mark.asyncio
+    async def test_a_pending_emergency_ballot_is_also_hidden(self):
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
+        await engine.create_game(GameConfig(5, [f"p{i}" for i in range(5)], seed=42))
+
+        live = engine._current_state
+        assert live is not None
+        live.capability = 5
+        live.safety = 1  # C - S == 4 opens the Emergency Safety window
+
+        voters = [p.id for p in live.alive_players]
+        await engine.perform_action(voters[0], ActionType.CALL_EMERGENCY_SAFETY)
+        await engine.perform_action(voters[0], ActionType.VOTE_EMERGENCY, vote=True)
+
+        view = engine.get_game_state(voters[1])
+        assert view is not None
+        assert view.emergency_votes == {}
+
+    @pytest.mark.asyncio
+    async def test_a_resolved_ballot_becomes_visible(self):
+        """Once everyone has voted the result is public."""
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
+        await engine.create_game(GameConfig(5, [f"p{i}" for i in range(5)], seed=42))
+
+        state = engine.debug_get_full_state()
+        assert state is not None
+        director = state.current_director.id
+        target = next(p.id for p in state.alive_players if p.id != director)
+        await engine.perform_action(director, ActionType.NOMINATE, target_id=target)
+
+        voters = [p.id for p in state.alive_players]
+        for voter in voters:
+            await engine.perform_action(voter, ActionType.VOTE_TEAM, vote=True)
+
+        # The vote passed, so the completed ballot is still on the state.
+        view = engine.get_game_state(voters[0])
+        assert view is not None
+        assert len(view.team_votes) == 5
+
+
+class TestDeckCountIsPublic:
+    @pytest.mark.asyncio
+    async def test_filtered_views_carry_the_deck_count(self):
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
+        await engine.create_game(GameConfig(5, [f"p{i}" for i in range(5)], seed=42))
+
+        view = engine.get_game_state("p0")
+        assert view is not None
+        assert view.deck == []  # contents stay private
+        assert view.deck_count == 17  # ...but the count is public
+
+    @pytest.mark.asyncio
+    async def test_the_rendered_board_shows_the_count(self):
+        from secret_agi.players.rendering import render_board
+
+        engine = GameEngine(database_url="sqlite:///:memory:")
+        await engine.init_database()
+        await engine.create_game(GameConfig(5, [f"p{i}" for i in range(5)], seed=42))
+
+        view = engine.get_game_state("p0")
+        assert view is not None
+        assert "Papers left in deck: 17" in render_board(view, "p0")
