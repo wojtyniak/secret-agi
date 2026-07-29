@@ -1,5 +1,6 @@
 """Base player interface for Secret AGI players."""
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -25,7 +26,7 @@ class BasePlayer(ABC):
         self.game_engine = None  # Will be set when player joins a game
 
     @abstractmethod
-    def choose_action(
+    async def choose_action(
         self, game_state: GameState, valid_actions: list[ActionType]
     ) -> tuple[ActionType, dict[str, Any]]:
         """
@@ -46,7 +47,7 @@ class BasePlayer(ABC):
         pass
 
     @abstractmethod
-    def on_game_start(self, game_state: GameState) -> None:
+    async def on_game_start(self, game_state: GameState) -> None:
         """
         Called when the game starts.
 
@@ -59,7 +60,7 @@ class BasePlayer(ABC):
         pass
 
     @abstractmethod
-    def on_game_update(self, game_update: GameUpdate) -> None:
+    async def on_game_update(self, game_update: GameUpdate) -> None:
         """
         Called after each action with the game update.
 
@@ -72,7 +73,7 @@ class BasePlayer(ABC):
         pass
 
     @abstractmethod
-    def on_game_end(self, final_state: GameState) -> None:
+    async def on_game_end(self, final_state: GameState) -> None:
         """
         Called when the game ends.
 
@@ -168,7 +169,7 @@ class HumanPlayer(BasePlayer):
         self.role: Role | None = None
         self.known_allies: list[str] = []
 
-    def choose_action(
+    async def choose_action(
         self, game_state: GameState, valid_actions: list[ActionType]
     ) -> tuple[ActionType, dict[str, Any]]:
         """Prompt human player for action choice."""
@@ -178,13 +179,15 @@ class HumanPlayer(BasePlayer):
         print(f"You are: {self.role}")
         print(f"Valid actions: {[a.value for a in valid_actions]}")
 
-        # Simple text-based input (would be replaced by web UI)
+        # Simple text-based input; run off the event loop so it never blocks it.
         while True:
-            action_input = input("Choose action: ").strip().lower()
+            action_input = (await asyncio.to_thread(input, "Choose action: ")).strip().lower()
 
             for action in valid_actions:
                 if action.value.lower() == action_input:
-                    params = self._get_action_parameters(action, game_state)
+                    params = await asyncio.to_thread(
+                        self._get_action_parameters, action, game_state
+                    )
                     return action, params
 
             print("Invalid action. Try again.")
@@ -229,7 +232,7 @@ class HumanPlayer(BasePlayer):
 
         return params
 
-    def on_game_start(self, game_state: GameState) -> None:
+    async def on_game_start(self, game_state: GameState) -> None:
         """Learn role and allies at game start."""
         # Find this player in the game state
         for player in game_state.players:
@@ -251,7 +254,7 @@ class HumanPlayer(BasePlayer):
         if self.known_allies:
             print(f"Known allies: {self.known_allies}")
 
-    def on_game_update(self, game_update: GameUpdate) -> None:
+    async def on_game_update(self, game_update: GameUpdate) -> None:
         """Display game events to human player."""
         if game_update.events:
             print("\n=== Recent Events ===")

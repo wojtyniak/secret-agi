@@ -247,7 +247,11 @@ class TestDeadPlayerExclusion:
         assert "not eligible" in (result.error or "").lower() or "eliminated" in (result.error or "").lower()
 
         # Nominate a living player instead
-        living_eligible = [p for p in eligible_engineers if state.get_player_by_id(p).alive]
+        living_eligible = [
+            p
+            for p in eligible_engineers
+            if (candidate := state.get_player_by_id(p)) is not None and candidate.alive
+        ]
         if living_eligible:
             result = await engine.perform_action(
                 current_director_id, ActionType.NOMINATE, target_id=living_eligible[0]

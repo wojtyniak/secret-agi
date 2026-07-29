@@ -33,7 +33,7 @@ class RandomPlayer(BasePlayer):
         self.action_count = 0
         self.game_history: list[dict[str, Any]] = []
 
-    def choose_action(
+    async def choose_action(
         self, game_state: GameState, valid_actions: list[ActionType]
     ) -> tuple[ActionType, dict[str, Any]]:
         """
@@ -144,7 +144,7 @@ class RandomPlayer(BasePlayer):
 
         return params
 
-    def on_game_start(self, game_state: GameState) -> None:
+    async def on_game_start(self, game_state: GameState) -> None:
         """Initialize player state at game start."""
         # Find this player's role
         for player in game_state.players:
@@ -171,7 +171,7 @@ class RandomPlayer(BasePlayer):
             }
         )
 
-    def on_game_update(self, game_update: GameUpdate) -> None:
+    async def on_game_update(self, game_update: GameUpdate) -> None:
         """Process game updates (no special logic for random player)."""
         # Record significant events for later analysis
         if game_update.events:
@@ -189,7 +189,7 @@ class RandomPlayer(BasePlayer):
                         }
                     )
 
-    def on_game_end(self, final_state: GameState) -> None:
+    async def on_game_end(self, final_state: GameState) -> None:
         """Record game end state."""
         self.game_history.append(
             {
@@ -254,9 +254,9 @@ class BiasedRandomPlayer(RandomPlayer):
         super().__init__(player_id, seed)
         self.role_bias: dict[str, Any] = {}
 
-    def on_game_start(self, game_state: GameState) -> None:
+    async def on_game_start(self, game_state: GameState) -> None:
         """Set up role-based biases."""
-        super().on_game_start(game_state)
+        await super().on_game_start(game_state)
 
         if self.role == Role.SAFETY:
             # Safety researchers prefer to vote yes on teams with allies
@@ -283,7 +283,7 @@ class BiasedRandomPlayer(RandomPlayer):
                 "hide_until_capability": 8,  # Try to stay hidden until C>=8
             }
 
-    def choose_action(
+    async def choose_action(
         self, game_state: GameState, valid_actions: list[ActionType]
     ) -> tuple[ActionType, dict[str, Any]]:
         """Make biased random choices based on role."""
@@ -312,7 +312,7 @@ class BiasedRandomPlayer(RandomPlayer):
             return self._choose_biased_paper(game_state)
 
         # Default to random choice for other actions
-        return super().choose_action(game_state, valid_actions)
+        return await super().choose_action(game_state, valid_actions)
 
     def _generate_biased_vote_parameters(
         self, action: ActionType, game_state: GameState

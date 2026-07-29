@@ -56,7 +56,7 @@ class TestCriticalEdgeCases:
                 )
                 # Game might end due to deck exhaustion during auto-publish attempt
                 if not result.success:
-                    assert "Game is over" in result.error
+                    assert "Game is over" in (result.error or "")
                     break
                 assert result.success
 
@@ -106,6 +106,7 @@ class TestCriticalEdgeCases:
         # Should handle insufficient deck gracefully
         if state.current_phase == Phase.RESEARCH:
             # Director should have received whatever cards were available
+            assert state.director_cards is not None
             assert len(state.director_cards) <= 2
             assert len(state.deck) == 0
         elif state.current_phase == Phase.GAME_OVER:
@@ -137,7 +138,11 @@ class TestCriticalEdgeCases:
         # Nominate someone
         director = state.current_director.id
         eligible = GameRules.get_eligible_engineers(state)
-        alive_eligible = [p for p in eligible if state.get_player_by_id(p).alive]
+        alive_eligible = [
+            p
+            for p in eligible
+            if (player := state.get_player_by_id(p)) is not None and player.alive
+        ]
 
         if alive_eligible:
             target = alive_eligible[0]

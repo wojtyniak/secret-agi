@@ -1,24 +1,16 @@
 """
-Tests for API fixes and error conditions found during web interface testing.
-
-These tests specifically cover the errors we found and fixed:
-1. get_async_session() parameter error
-2. SimpleOrchestrator property access
-3. Database connection management
-4. Game log formatting edge cases
+Tests for the database layer: session management, action/event retrieval,
+and persistence across connections.
 """
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from secret_agi.database.connection import get_async_session, init_database
 from secret_agi.database.models import Action, Event, Game
 from secret_agi.database.operations import GameOperations
-from secret_agi.orchestrator.simple_orchestrator import SimpleOrchestrator
-from secret_agi.players.random_player import RandomPlayer
 
 
 class TestAsyncSessionParameterError:
@@ -33,50 +25,6 @@ class TestAsyncSessionParameterError:
         # This should work (no parameters)
         async with get_async_session() as session:
             assert session is not None
-
-    def test_get_async_session_with_parameters_fails(self):
-        """Test that get_async_session() fails with parameters."""
-        # This should fail (with parameters) - documenting the error we found
-        with pytest.raises(TypeError, match="takes 0 positional arguments but 1 was given"):
-            # This is the error we encountered in the API
-            get_async_session("sqlite:///test.db")
-
-
-class TestSimpleOrchestratorProperties:
-    """Test SimpleOrchestrator properties added to fix game-log access."""
-
-    def test_current_game_id_property_initially_none(self):
-        """Test that current_game_id is None initially."""
-        orchestrator = SimpleOrchestrator(database_url="sqlite:///:memory:")
-        assert orchestrator.current_game_id is None
-
-    def test_engine_property_initially_none(self):
-        """Test that engine property is None initially."""
-        orchestrator = SimpleOrchestrator(database_url="sqlite:///:memory:")
-        assert orchestrator.engine is None
-
-    @pytest.mark.asyncio
-    async def test_current_game_id_after_game_run(self):
-        """Test that current_game_id is set after running a game."""
-        orchestrator = SimpleOrchestrator(database_url="sqlite:///:memory:", debug_mode=False)
-        players = [RandomPlayer(f"player_{i}") for i in range(5)]
-
-        result = await orchestrator.run_game(players)
-
-        # After running a game, current_game_id should be set
-        assert orchestrator.current_game_id is not None
-        assert orchestrator.current_game_id == result["game_id"]
-
-    @pytest.mark.asyncio
-    async def test_engine_property_after_game_run(self):
-        """Test that engine property is available after running a game."""
-        orchestrator = SimpleOrchestrator(database_url="sqlite:///:memory:", debug_mode=False)
-        players = [RandomPlayer(f"player_{i}") for i in range(5)]
-
-        await orchestrator.run_game(players)
-
-        # After running a game, engine should be available
-        assert orchestrator.engine is not None
 
 
 class TestDatabaseOperations:
@@ -233,91 +181,6 @@ class TestDatabasePersistence:
             # Cleanup
             Path(db_path).unlink(missing_ok=True)
 
-
-class TestActionFormatting:
-    """Test action formatting edge cases found during development."""
-
-    def test_action_with_none_data_formatting(self):
-        """Test that actions with None action_data don't crash formatting."""
-        # Mock action with None action_data (this was causing issues)
-        mock_action = MagicMock()
-        mock_action.turn_number = 1
-        mock_action.player_id = "player_1"
-        mock_action.action_type = "observe"
-        mock_action.action_data = None
-        mock_action.is_valid = True
-        mock_action.error_message = None
-
-        # This is the formatting logic from the API
-        status = "✅" if mock_action.is_valid else "❌"
-        message = f"{status} {mock_action.player_id} → {mock_action.action_type}"
-
-        # Should handle None action_data gracefully
-        if mock_action.action_data:
-            # This branch shouldn't execute for None data
-            raise AssertionError("Should not process None action_data")
-
-        # Should produce a valid message
-        assert "✅ player_1 → observe" == message
-
-    def test_action_formatting_with_various_action_types(self):
-        """Test action formatting for different action types."""
-        test_cases = [
-            {
-                "action_type": "nominate",
-                "action_data": {"target_id": "player_2"},
-                "expected_suffix": " (target: player_2)"
-            },
-            {
-                "action_type": "vote_team",
-                "action_data": {"vote": True},
-                "expected_suffix": " (YES)"
-            },
-            {
-                "action_type": "vote_team",
-                "action_data": {"vote": False},
-                "expected_suffix": " (NO)"
-            },
-            {
-                "action_type": "discard_paper",
-                "action_data": {"paper_id": "paper_123"},
-                "expected_suffix": " (paper: paper_123)"
-            },
-            {
-                "action_type": "respond_veto",
-                "action_data": {"agree": True},
-                "expected_suffix": " (AGREE)"
-            },
-            {
-                "action_type": "respond_veto",
-                "action_data": {"agree": False},
-                "expected_suffix": " (REFUSE)"
-            }
-        ]
-
-        for case in test_cases:
-            mock_action = MagicMock()
-            mock_action.action_type = case["action_type"]
-            mock_action.action_data = case["action_data"]
-            mock_action.is_valid = True
-
-            # This is the formatting logic from the API
-            message = f"✅ player_1 → {mock_action.action_type}"
-
-            if mock_action.action_data:
-                if mock_action.action_type == "nominate":
-                    message += f" (target: {mock_action.action_data.get('target_id', 'unknown')})"
-                elif mock_action.action_type in ["vote_team", "vote_emergency"]:
-                    message += f" ({'YES' if mock_action.action_data.get('vote') else 'NO'})"
-                elif mock_action.action_type in ["discard_paper", "publish_paper"]:
-                    message += f" (paper: {mock_action.action_data.get('paper_id', 'unknown')})"
-                elif mock_action.action_type == "respond_veto":
-                    response = "AGREE" if mock_action.action_data.get('agree') else "REFUSE"
-                    message += f" ({response})"
-
-            assert message.endswith(case["expected_suffix"]), f"Failed for {case['action_type']}: {message}"
-
-
 class TestErrorConditions:
     """Test various error conditions found during development."""
 
@@ -337,25 +200,3 @@ class TestErrorConditions:
             except Exception as e:
                 # Expected behavior - table doesn't exist
                 assert "no such table" in str(e).lower() or "doesn't exist" in str(e).lower()
-
-    def test_current_game_id_property_access(self):
-        """Test accessing current_game_id property on orchestrator."""
-        orchestrator = SimpleOrchestrator()
-
-        # Should not raise an error, should return None
-        game_id = orchestrator.current_game_id
-        assert game_id is None
-
-        # Should have the property defined
-        assert hasattr(orchestrator, 'current_game_id')
-
-    def test_engine_property_access(self):
-        """Test accessing engine property on orchestrator."""
-        orchestrator = SimpleOrchestrator()
-
-        # Should not raise an error, should return None
-        engine = orchestrator.engine
-        assert engine is None
-
-        # Should have the property defined
-        assert hasattr(orchestrator, 'engine')

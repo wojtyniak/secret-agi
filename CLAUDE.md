@@ -58,7 +58,7 @@ just db-reset               # Reset database
 # Install dependencies
 uv sync --dev
 
-# Run tests (comprehensive suite with 116 tests)
+# Run tests
 uv run pytest
 
 # Run specific test files
@@ -85,17 +85,17 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy . && uv run p
 
 ### Core Components
 
-1. **Game Engine Service**: ✅ **COMPLETED** - Implements Secret AGI game logic and maintains authoritative game state
-2. **Agent Orchestrator Service**: ⏳ **PLANNED** - Coordinates independent ADK agents and manages game flow
-3. **Agent Framework**: ✅ **COMPLETED** - Provides standardized interface for diverse agent implementations
-4. **Storage Layer**: ✅ **COMPLETED** - SQLite database with SQLModel ORM and Alembic migrations
-5. **Web API**: ⏳ **PLANNED** - FastAPI-based REST API for UI and external control
-6. **Web UI**: ⏳ **PLANNED** - Browser-based interface for monitoring and control
+1. **Game Engine**: ✅ **DONE** - Secret AGI rules + authoritative game state (do not rewrite)
+2. **Storage Layer**: ✅ **DONE** - SQLite/SQLModel with Alembic migrations, snapshots, replay
+3. **Player Framework**: ✅ **DONE (M0)** - async `BasePlayer`, `RandomPlayer` baseline
+4. **Provider Layer**: ⏳ **M1** - `ModelAdapter` protocol + OpenAI / Anthropic / Mock adapters
+5. **Match Runner + CLI**: ⏳ **M3** - seeded balanced schedules, concurrency, cost caps
+6. **Analysis Layer**: ⏳ **M2** - belief probes, LLM-judge labeling, scorecards with CIs
 
 ### Key Design Principles
 
 - **Async-Only Architecture**: Single async GameEngine with mandatory database persistence
-- **Sequential Game Execution**: No concurrent games - simplifies state management  
+- **Concurrent Games**: the engine is instance-scoped; the match runner runs games in parallel behind a configured limit
 - **Event Sourcing**: Complete state snapshots after each action for replay/branching
 - **Tool-Based Agent Interface**: Agents interact exclusively through async tools
 - **Database-First Design**: All operations persist to SQLite with automatic migrations
@@ -149,7 +149,7 @@ Key tables include:
 
 ## Extension Points
 
-- **New Agent Types**: Implement base agent interface → Register with orchestrator
+- **New Agent Types**: Implement the async `BasePlayer` interface → reference it from a run config
 - **Custom Analysis**: Query database → Implement analysis logic → Expose via API
 - **Game Variants**: Modify game engine validation → Update state machine → Extend tools if needed
 
@@ -161,89 +161,56 @@ Key tables include:
 
 ## Current Implementation Status
 
-### ✅ **COMPLETED** (Phase 1: Async Game Engine + Database)
-- **Async Game Engine**: Single consolidated async-only GameEngine with mandatory persistence
-- **Database Integration**: Complete SQLModel/SQLite persistence with Alembic migrations
-- **Core Game Logic**: Complete implementation of all Secret AGI rules
-- **Data Models**: Immutable state management with event sourcing
-- **Action System**: Validation-first action processing with comprehensive error handling
-- **Rules Engine**: Win conditions, powers, emergency safety, veto system
-- **Player Interface**: Async base class with RandomPlayer implementation
-- **Testing Suite**: 189 comprehensive unit and integration tests (100% passing)
-- **Game Validation**: Automated completeness testing with 100% success rate
-- **Type Safety**: Strict mypy configuration with 0 errors across entire codebase
-- **Code Quality**: Complete ruff linting and formatting pipeline
-- **Development Tooling**: Justfile with database migration commands
-- **Game Recovery**: Complete interrupted game recovery and checkpoint functionality
+*Authoritative scope: `IMPLEMENTATION_BRIEF.md` (+ `EVAL_PLAN.md`, `ROADMAP.md`). Where
+this file conflicts with the brief, the brief wins.*
 
-### 📂 **Available Components**
+The project is being turned into **Secret AGI Bench**: an eval harness where LLM agents
+play Secret AGI, producing per-model scorecards for cooperation under mutual opacity and
+deception propensity vs capability.
+
+### ✅ Done — engine + database (kept as-is)
+- **Async Game Engine**: single async `GameEngine` with mandatory database persistence
+- **Core Game Logic**: complete Secret AGI rules — powers, veto, emergency safety, win conditions
+- **Information Filtering**: per-player filtered `GameState` / event views in `engine/events.py`
+- **Storage Layer**: SQLModel/SQLite with Alembic migrations, per-turn state snapshots,
+  full action/event history, replay + branching, interrupted-game recovery
+
+### ✅ Done — M0 (modernize base)
+- **Async player interface**: `choose_action` and the lifecycle hooks are `async`
+- **Scrapped scaffolding**: `orchestrator/`, `api/` (FastAPI + embedded HTML viewer),
+  `test_your_agents.py`, `launch_web_viewer.py`, `players/agent_template.py` and their tests
+- **Clean quality gate**: ruff clean, mypy 0 errors outside the database exemption,
+  194 tests passing
+- **CI**: GitHub Actions running uv + ruff + mypy + pytest
+- **Dependencies**: `openai`, `anthropic`, `pyyaml`, `typer` added; FastAPI removed;
+  lockfile refreshed; `__pycache__` untracked
+
+### ⏳ Remaining (M1–M3, per ROADMAP §1.4)
+- **M1** — provider layer (`ModelAdapter` + OpenAI/Anthropic/Mock adapters), `LLMPlayer`,
+  chat discussion sub-phases, versioned prompts
+- **M2** — metrics wiring, belief probes, LLM-judge pipeline, scorecards with bootstrap CIs
+- **M3** — concurrent games, resumability, cost caps, seeded seat/role-balanced schedules, CLI
+
+### 📂 Current layout
 ```
 secret_agi/
-├── engine/
-│   ├── models.py           # Core data structures
-│   ├── game_engine.py      # Async game engine with database
-│   ├── actions.py          # Action validation & processing
-│   ├── rules.py            # Game rules & win conditions
-│   └── events.py           # Event system & info filtering
-├── database/
-│   ├── models.py           # SQLModel database tables
-│   ├── operations.py       # Database CRUD operations
-│   ├── connection.py       # Async database connection
-│   ├── unit_of_work.py     # Transaction management
-│   └── enums.py            # Database-specific enums
-├── players/
-│   ├── base_player.py      # Abstract async player interface
-│   ├── random_player.py    # Random player implementation
-│   └── agent_template.py   # Agent implementation guide
-├── orchestrator/
-│   └── simple_orchestrator.py # Multi-agent game coordination
-├── api/
-│   └── simple_api.py       # FastAPI backend with detailed logging
-├── tests/                  # Comprehensive test suite (189 tests)
-├── alembic/                # Database migrations
-└── settings.py             # Centralized configuration
+├── engine/                 # rules, actions, events, async GameEngine  (do not rewrite)
+├── database/               # SQLModel tables, operations, connection, unit of work
+├── players/                # async BasePlayer, RandomPlayer (baseline), HumanPlayer
+├── settings.py             # centralized configuration
+tests/                      # unit, scenario, integration and edge-case suites
+alembic/                    # database migrations
 ```
 
-### ✅ **COMPLETED** (Phase 2: Agent Development Infrastructure)
-- **SimpleOrchestrator**: Multi-agent game coordination with error handling
-- **Agent Testing Pipeline**: Quick validation script for agent performance testing
-- **Web API**: FastAPI backend with game management endpoints
-- **Web UI**: HTML game viewer with real-time monitoring and detailed action logging
-- **Agent Framework**: BasePlayer interface with template and documentation
-- **Debug Infrastructure**: Comprehensive logging and agent decision visibility
-
-### ⏳ **TODO** (Future Phases)
-- Chat system implementation (send_chat_message action and communication phases)
-- Agent integration with ADK framework  
-- Advanced web features (WebSocket real-time updates)
-- Performance monitoring with Langfuse
-- Tournament systems and multi-game analytics
-
-### 🎯 **Production Ready**
-The Secret AGI system is now fully production-ready with:
-- **Complete Game Engine**: 189/189 tests passing with async GameEngine
-- **Type Safety**: 0 mypy errors with strict configuration  
-- **Code Quality**: Full linting and formatting pipeline
-- **Developer Experience**: Complete tooling with Justfile and database commands
-- **Async Architecture**: Single consolidated async GameEngine with mandatory persistence
-- **Database Persistence**: Complete SQLModel/SQLite integration with Alembic migrations
-- **Game Completeness**: Reliable game termination across all player counts
-- **Agent Infrastructure**: SimpleOrchestrator, testing pipeline, web interface
-- **Detailed Logging**: Turn-by-turn action history with validation status
-- **Recovery Systems**: Complete game state recovery and checkpoint functionality
-
-**Ready to support:**
-- **Immediate Agent Development**: Complete infrastructure for building and testing agents
-- **Game Monitoring**: Web interface with real-time action-by-action visibility
-- **Performance Analysis**: Database-backed metrics collection and analysis
-- **Game Replay**: Complete historical game state access and reconstruction
-- **Multi-Agent Scenarios**: Mixed agent type coordination and testing
-- **Production Deployment**: Enterprise-grade persistence and error recovery
+### 🚫 Out of scope for this pass
+- Any web UI (the replay viewer and leaderboard site are M4)
+- Rewriting the rules engine
+- Deception hints in player prompts — system prompts say "play to win", never "deceive"
 
 ## Development Memories
 
-- Always use jj to set commit messages. Never output them as text. Don't add yourself (Claude) to commit message or a a co-author.
+- Don't add yourself (Claude) to commit messages or as a co-author.
 - I feel we're complicating our life by adding new features before all tests are passing. Make sure all tests are passing after every time you make changes
-- **IMPORTANT**: ALWAYS use jj (Jujutsu) for version control operations, NEVER git. This is a jj repository.
+- **IMPORTANT**: on the remote execution environment jj is not installed — use git there. Locally this is a jj repository.
 - Don't remove documentation files unless prompted to
 - Always write commit message after making changes if it's empty

@@ -723,3 +723,47 @@ The infrastructure successfully unblocks immediate agent development with:
 - ✅ **Template and documentation** for implementation guidance
 
 Users can now focus on agent logic, LLM integration, and strategy development without infrastructure concerns.
+## M0 — Modernize base (2026-07-29)
+
+First milestone of the Secret AGI Bench build (`IMPLEMENTATION_BRIEF.md` is the
+authoritative scope; it overrides the older status claims in CLAUDE.md/ARCHITECTURE.md/PRD.md).
+
+### What changed
+
+**Scrapped scaffolding** (brief decision #1): `orchestrator/simple_orchestrator.py`, the
+whole `api/` package (FastAPI + embedded HTML viewer), `test_your_agents.py`,
+`launch_web_viewer.py`, `players/agent_template.py`, `tests/test_web_api.py`. The
+orchestrator/API-specific half of `tests/test_api_fixes.py` went too; the genuinely
+database-level tests in it survive as `tests/test_database_operations.py`.
+
+**Async player interface** (decision #2): `choose_action`, `on_game_start`,
+`on_game_update` and `on_game_end` are now `async` on `BasePlayer`, `RandomPlayer`,
+`BiasedRandomPlayer` and `HumanPlayer`. `HumanPlayer` routes its blocking `input()` calls
+through `asyncio.to_thread` so a human seat can't stall the event loop either.
+
+**Housekeeping**: 37 tracked `__pycache__` files untracked (they were already gitignored);
+stray `web_games.db` / `*.log` artifacts of the deleted web API removed and gitignored;
+`fastapi[standard]` dropped; `openai`, `anthropic`, `pyyaml`, `typer` and `types-PyYAML`
+added; lockfile refreshed. `just dev` (uvicorn) removed from the Justfile.
+
+**CI**: `.github/workflows/ci.yml` runs uv → ruff → mypy → pytest on push and PR.
+
+### Verification
+
+- **mypy: 0 errors** (was 63). Most vanished with the scrapped modules; the remaining 16
+  were mechanical Optional-narrowing in tests, fixed with asserts and walrus guards rather
+  than `type: ignore` — except one genuinely unreachable `Phase.GAME_OVER` comparison that
+  mypy narrows wrongly because the engine mutates state between statements.
+- **194 tests passing** (219 minus the 25 API/orchestrator tests deleted with their modules).
+- ruff clean.
+
+### Notes for later milestones
+
+- `GameEngine.create_game` calls the module-level `random.seed(config.seed)`. That is a
+  global; once games run concurrently (M3) it will make "seeded" games non-deterministic
+  across a parallel run. Needs a per-game `random.Random(seed)` instance.
+- `database/connection.py` keeps a single global engine + sessionmaker. That is fine for
+  concurrent games against one database URL, but means a process can only talk to one
+  database at a time — worth remembering when the CLI grows a `--database-url` flag.
+- `ruff format --check` fails on 15 pre-existing files. `just check` doesn't include it, so
+  it is not part of the gate; left alone to keep milestone diffs readable.

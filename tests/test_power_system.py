@@ -342,6 +342,7 @@ class TestPowerEffects:
         if target_players:
             target_id = target_players[0].id
             target_player = state.get_player_by_id(target_id)
+            assert target_player is not None
 
             # Player should be alive initially
             assert target_player.alive

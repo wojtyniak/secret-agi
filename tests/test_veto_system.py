@@ -178,7 +178,8 @@ class TestVetoDeclaration:
             # (The exact behavior depends on action validation implementation)
             if not result.success:
                 # If it fails, it should be due to game state, not veto availability
-                assert "veto" not in result.error.lower() or "not unlocked" not in result.error.lower()
+                error = result.error or ""
+                assert "veto" not in error.lower() or "not unlocked" not in error.lower()
 
     @pytest.mark.asyncio
     async def test_veto_declaration_timing_before_paper_selection(self):
