@@ -916,3 +916,74 @@ because the metric definitions are subtle:
 - Acceptance criterion #4 is covered by tests: every chat message ends up with a
   judge label, every commitment with a follow-through verdict, and probes exist
   for every round.
+
+## M3 — Scale & harden (2026-07-29)
+
+Turns a working harness into something that can run a leaderboard unattended.
+
+### Runs are `(config, seed)`
+
+A run config is the complete reproduction recipe: models, prompts, chat
+parameters, schedule, judge, caps. It expands to a fixed schedule where each
+game's seed is *derived*, not drawn:
+
+    game_seed = (run_seed * 1000003 + index * 7919 + 1) mod (2^31 - 1)
+
+Deriving rather than storing is what makes resume exact — a game's seed can be
+recomputed from its index, so replaying only the unfinished games gives byte-for-
+byte the same results as never having been interrupted. There is a test asserting
+exactly that, and the manual check agreed: a run killed after 4 of 20 games and
+resumed produced an identical scorecard (same 0.490 win rate, same 2318
+decisions) while replaying only the remaining 16.
+
+**Seat position** is rotated across the schedule and the realised balance is
+reported in every run report, so the control can be checked rather than trusted.
+**Role balance is left statistical** rather than forced: overriding the engine's
+dealing would mean measuring something that is not the actual game. The per-role
+`n`s make the realised distribution visible.
+
+### Two concurrency limits, not one
+
+`parallelism` bounds games in flight; `provider_concurrency` bounds calls in
+flight against any one provider, shared across all games. They are genuinely
+different questions — a provider's rate limit does not care how we sliced our
+games up — so conflating them would either underuse the machine or hammer the API.
+
+### Cost caps
+
+`max_total_tokens` / `max_cost_usd` gate the *start* of each game. Unpriced models
+are reported as `unpriced_models` rather than silently counted as free, which
+would understate a run's cost precisely when the price list is out of date.
+
+### A real bug the tests caught
+
+The first cost-cap implementation called `cost.check()` at the end of `_play_game`,
+which raised `BudgetExceeded` **after** the game had finished — discarding the
+result of a game that was already paid for. Two tests failed with
+`games_completed == 0`. The fix is that the pre-start gate is the only gate: a game
+in flight is allowed to finish and its result is kept, because that spend has
+already happened and throwing the result away wastes it.
+
+### CLI
+
+`secretagi run | resume | score | export | validate`. Converted to typer's
+`Annotated` parameter style, which is both the modern idiom and what clears
+ruff's B008 (function calls in argument defaults).
+
+### Verification against the acceptance criteria
+
+- **#3**: `secretagi run configs/selfplay-pilot.yaml` played 20 concurrent seeded
+  games unattended in ~2 minutes, survived being killed and resumed, and
+  `secretagi score` emitted a complete scorecard JSON plus a readable summary with
+  a CI on every metric — including `Under Oath` (n=6), which only has data when a
+  game actually reaches C≥10.
+- **#5**: `docs/METHODOLOGY.md` covers schedules, seeding, the prompts policy,
+  judge setup and every metric definition, including the three definitions that
+  are easy to get wrong (per-seat Circle of Trust, snapshot-derived Under Oath,
+  seat-counting cooperation matrix) and an honest limitations section.
+
+### Toolchain note
+
+`uv sync --upgrade-package mypy` had pulled mypy 2.x earlier; it is pinned `<2`.
+The `demo` Justfile recipe was still calling the pre-async `run_random_game(5)`
+synchronously — fixed while adding the benchmark recipes.

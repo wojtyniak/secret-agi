@@ -1,0 +1,41 @@
+# A single real-API game, for checking that a provider is wired up correctly.
+#
+#   export OPENAI_API_KEY=...        # and/or ANTHROPIC_API_KEY
+#   uv run secretagi run configs/smoke.yaml
+#
+# Uses cheap models: this should cost cents, not dollars.
+name: smoke
+player_count: 5
+games: 1
+seed: 1
+parallelism: 1
+database_url: sqlite:///runs/smoke.db
+
+players:
+  - name: gpt
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 1.0
+    seats: 3
+
+  - name: claude
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 1.0
+    seats: 2
+
+chat:
+  enabled: true
+  messages_per_player: 1
+  max_message_length: 400
+
+judge:
+  enabled: true
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  api_key_env: ANTHROPIC_API_KEY
+
+# Safety rail: stop cleanly rather than run away with someone's credits.
+max_total_tokens: 2000000

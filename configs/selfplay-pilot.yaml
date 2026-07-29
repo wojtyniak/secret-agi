@@ -1,0 +1,31 @@
+# A 20-game self-play pilot on the mock adapter.
+#
+#   uv run secretagi run configs/selfplay-pilot.yaml
+#   uv run secretagi score selfplay-pilot-7 --config configs/selfplay-pilot.yaml
+#
+# No API keys, no network, no cost — this is the config CI and the variance
+# analysis use. Swap the provider/model for a real one to run it for real.
+name: selfplay-pilot
+player_count: 5
+games: 20
+seed: 7
+parallelism: 4
+provider_concurrency: 8
+probe_each_round: true
+database_url: sqlite:///runs/selfplay-pilot.db
+
+players:
+  - name: pilot
+    provider: mock
+    model: mock-pilot
+    seats: 5
+
+chat:
+  enabled: true
+  messages_per_player: 1
+  max_message_length: 600
+
+judge:
+  enabled: true
+  provider: mock
+  model: mock-judge

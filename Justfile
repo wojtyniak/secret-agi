@@ -45,7 +45,7 @@ test-completeness:
 
 # Run a quick random game simulation
 demo:
-    uv run python -c "from secret_agi.engine.game_engine import run_random_game; print(run_random_game(5))"
+    uv run python -c "import asyncio; from secret_agi.engine.game_engine import run_random_game; print(asyncio.run(run_random_game(5, database_url='sqlite:///:memory:')))"
 
 # Database migration commands
 db-init:
@@ -95,3 +95,26 @@ status:
     @echo "UV version: $(uv --version)"
     @echo "Dependencies:"
     @uv tree --depth 1
+
+# Benchmark runs (see docs/METHODOLOGY.md)
+
+# Validate a run config without playing anything
+validate CONFIG:
+    uv run secretagi validate {{CONFIG}}
+
+# Play a full run from a config
+run CONFIG:
+    uv run secretagi run {{CONFIG}}
+
+# Resume an interrupted run
+resume RUN_ID CONFIG:
+    uv run secretagi resume {{RUN_ID}} --config {{CONFIG}}
+
+# Score a finished run
+score RUN_ID CONFIG:
+    uv run secretagi score {{RUN_ID}} --config {{CONFIG}}
+
+# Run the mock-only pilot end to end (no API keys needed)
+pilot:
+    uv run secretagi run configs/selfplay-pilot.yaml
+    uv run secretagi score selfplay-pilot-7 --config configs/selfplay-pilot.yaml

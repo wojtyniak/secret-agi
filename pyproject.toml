@@ -18,6 +18,9 @@ dependencies = [
     "typer>=0.15.0",
 ]
 
+[project.scripts]
+secretagi = "secret_agi.cli:app"
+
 [project.optional-dependencies]
 dev = [
     "ruff>=0.3.0",
