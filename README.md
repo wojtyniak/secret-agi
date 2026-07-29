@@ -158,6 +158,7 @@ These are hard requirements, not preferences (see `ROADMAP.md` §1.5):
 ## Documentation
 
 - `docs/METHODOLOGY.md` — **schedules, seeding, prompts policy, judge setup, metric definitions**
+- `docs/IMPLEMENTATION_NOTES.md` — build decisions, known warts, and what to do next
 - `IMPLEMENTATION_BRIEF.md` — authoritative build scope (overrides older docs)
 - `EVAL_PLAN.md` — landscape research, codebase assessment, eval design
 - `ROADMAP.md` — implementation, release and adoption plan
