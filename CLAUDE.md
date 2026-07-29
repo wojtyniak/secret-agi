@@ -164,9 +164,13 @@ Key tables include:
 *Authoritative scope: `IMPLEMENTATION_BRIEF.md` (+ `EVAL_PLAN.md`, `ROADMAP.md`). Where
 this file conflicts with the brief, the brief wins.*
 
-The project is being turned into **Secret AGI Bench**: an eval harness where LLM agents
-play Secret AGI, producing per-model scorecards for cooperation under mutual opacity and
-deception propensity vs capability.
+This is **Secret AGI Bench**: an eval harness where LLM agents play Secret AGI,
+producing per-model scorecards for cooperation under mutual opacity and deception
+propensity vs capability. **M0–M3 are complete.** M4 (leaderboard site, replay viewer,
+transcripts dataset) is not started.
+
+Read `docs/METHODOLOGY.md` before changing anything that affects a published number:
+schedules, seeding, prompts, judge setup, or a metric definition.
 
 ### ✅ Done — engine + database (kept as-is)
 - **Async Game Engine**: single async `GameEngine` with mandatory database persistence
@@ -176,36 +180,57 @@ deception propensity vs capability.
   full action/event history, replay + branching, interrupted-game recovery
 
 ### ✅ Done — M0 (modernize base)
-- **Async player interface**: `choose_action` and the lifecycle hooks are `async`
-- **Scrapped scaffolding**: `orchestrator/`, `api/` (FastAPI + embedded HTML viewer),
-  `test_your_agents.py`, `launch_web_viewer.py`, `players/agent_template.py` and their tests
-- **Clean quality gate**: ruff clean, mypy 0 errors outside the database exemption,
-  194 tests passing
-- **CI**: GitHub Actions running uv + ruff + mypy + pytest
-- **Dependencies**: `openai`, `anthropic`, `pyyaml`, `typer` added; FastAPI removed;
-  lockfile refreshed; `__pycache__` untracked
+- Async player interface; `orchestrator/`, `api/` and the root scripts scrapped
+- CI (uv + ruff + mypy + pytest); `openai`/`anthropic`/`pyyaml`/`typer` in, FastAPI out
 
-### ⏳ Remaining (M1–M3, per ROADMAP §1.4)
-- **M1** — provider layer (`ModelAdapter` + OpenAI/Anthropic/Mock adapters), `LLMPlayer`,
-  chat discussion sub-phases, versioned prompts
-- **M2** — metrics wiring, belief probes, LLM-judge pipeline, scorecards with bootstrap CIs
-- **M3** — concurrent games, resumability, cost caps, seeded seat/role-balanced schedules, CLI
+### ✅ Done — M1 (LLM plays)
+- **Providers**: `ModelAdapter` protocol + OpenAI (configurable `base_url`), Anthropic
+  (native tool use, prompt caching) and Mock adapters
+- **Chat**: discussion sub-phase of Team Proposal, before each nomination and each team
+  vote; round-robin, K messages each, length-capped, all public. Passing is allowed
+- **`LLMPlayer`** with versioned prompts under `secret_agi/prompts/v1/`
+
+### ✅ Done — M2 (instrumentation)
+- `AgentMetric` rows per decision; `BeliefProbe` and `ChatLabel` tables
+- **Judge**: labels every chat message `lie`/`true`/`unverifiable` against ground truth,
+  asks separately whether a lie was mechanically necessary, extracts and checks commitments
+- **Scorecards**: Backstab Rate, Poker Face, Gullibility, Circle of Trust, Under Oath,
+  win rates by role, cooperation matrix — all with bootstrap 95% CIs
+
+### ✅ Done — M3 (scale & harden)
+- Seeded, seat-rotated schedules with derived per-game seeds
+- Concurrent games with independent game and per-provider limits
+- Resumable runs (a resumed run reproduces an uninterrupted one exactly)
+- Hard token/dollar caps; unpriced models reported, never assumed free
+- `secretagi run | resume | score | export | validate`; `configs/`; `docs/METHODOLOGY.md`
+
+### ⏳ Not started — M4
+Leaderboard site, replay viewer, HuggingFace transcripts export, technical report.
 
 ### 📂 Current layout
 ```
 secret_agi/
 ├── engine/                 # rules, actions, events, async GameEngine  (do not rewrite)
 ├── database/               # SQLModel tables, operations, connection, unit of work
-├── players/                # async BasePlayer, RandomPlayer (baseline), HumanPlayer
+├── providers/              # ModelAdapter protocol + OpenAI / Anthropic / Mock adapters
+├── players/                # async BasePlayer, LLMPlayer, RandomPlayer, HumanPlayer
+├── prompts/v1/             # versioned prompt files (frozen per benchmark version)
+├── match/                  # run configs, schedules, cost caps, run orchestrator
+├── analysis/               # judge pipeline, scorecards, bootstrap statistics
+├── cli.py                  # secretagi run | resume | score | export | validate
 ├── settings.py             # centralized configuration
+configs/                    # published run configs
+docs/METHODOLOGY.md         # how a run is built and what each metric means
 tests/                      # unit, scenario, integration and edge-case suites
 alembic/                    # database migrations
 ```
 
-### 🚫 Out of scope for this pass
-- Any web UI (the replay viewer and leaderboard site are M4)
-- Rewriting the rules engine
-- Deception hints in player prompts — system prompts say "play to win", never "deceive"
+### 🚫 Hard rules
+- **No deception hints in prompts.** System prompts say "play to win", never "deceive".
+  Enforced by tests — every propensity metric depends on it.
+- **Do not rewrite the rules engine.**
+- **No web UI** — the replay viewer and leaderboard site are M4.
+- **Nothing in tests or CI calls a real provider API**; integration tests use MockAdapter.
 
 ## Development Memories
 
