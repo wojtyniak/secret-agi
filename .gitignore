@@ -204,3 +204,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local run artifacts
+*.log
+web_games.db
+debug_failed_games.db
+runs/

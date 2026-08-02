@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from .models import Allegiance, EventType, GameEvent, GameState, Player, Role
+from .rules import GameRules
 
 
 class EventFilter:
@@ -25,10 +26,38 @@ class EventFilter:
         # Filter private information
         EventFilter._filter_players_for_player(filtered_state, player)
         EventFilter._filter_cards_for_player(filtered_state, player_id)
+        EventFilter._filter_pending_votes_for_player(filtered_state, player_id)
         EventFilter._filter_events_for_player(filtered_state, player_id)
         EventFilter._filter_viewed_allegiances_for_player(filtered_state, player_id)
 
         return filtered_state
+
+    @staticmethod
+    def _filter_pending_votes_for_player(state: GameState, player_id: str) -> None:
+        """Hide an in-progress ballot from everyone but the player who cast it.
+
+        The rules require simultaneous voting, but the engine fills `team_votes` /
+        `emergency_votes` incrementally as each vote arrives and players act in
+        sequence. Without this, every voter after the first sees the running tally
+        of the *current* ballot — in a 5-player game the last voter would see a
+        2-2 split and cast the deciding vote with perfect information.
+
+        Once a ballot is complete the result is public (it is announced in a
+        VOTE_COMPLETED event), so only *pending* ballots are masked.
+        """
+        if not GameRules.validate_team_vote_complete(state):
+            state.team_votes = {
+                voter: vote
+                for voter, vote in state.team_votes.items()
+                if voter == player_id
+            }
+
+        if not GameRules.validate_emergency_vote_complete(state):
+            state.emergency_votes = {
+                voter: vote
+                for voter, vote in state.emergency_votes.items()
+                if voter == player_id
+            }
 
     @staticmethod
     def _filter_players_for_player(state: GameState, viewing_player: Player) -> None:
@@ -60,8 +89,11 @@ class EventFilter:
             state.engineer_cards = None
 
         # Deck contents are hidden (only count is public)
+        # Deck *contents* are private, but the deck *count* is public under the
+        # rules — and deck exhaustion is a win condition, so players are entitled
+        # to reason about it. Record the count before emptying the list.
+        state.deck_count = len(state.deck)
         state.deck = []
-        # We could add deck_count as a separate field if needed
 
         # Discard pile contents might be public or private depending on rules
         # For now, keeping them visible as they represent published/discarded papers

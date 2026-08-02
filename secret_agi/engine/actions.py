@@ -1,8 +1,18 @@
 """Action validation and processing for Secret AGI game engine."""
 
+import uuid
 from typing import Any
 
-from .models import ActionType, EventType, GameState, GameUpdate, Phase, Player
+from .models import (
+    ActionType,
+    ChatEntry,
+    DiscussionKind,
+    EventType,
+    GameState,
+    GameUpdate,
+    Phase,
+    Player,
+)
 from .rules import GameRules
 
 
@@ -45,6 +55,16 @@ class ActionValidator:
         state: GameState, player: Player, action: ActionType, **kwargs: Any
     ) -> tuple[bool, str | None]:
         """Validate actions during team proposal phase."""
+
+        # While a discussion sub-phase is open, the only game action is talking:
+        # every other decision waits until the table has finished discussing.
+        if state.discussion_active:
+            if action != ActionType.SEND_CHAT_MESSAGE:
+                return False, "Discussion in progress - only chat messages are allowed"
+            return ActionValidator._validate_chat_message(state, player, **kwargs)
+
+        if action == ActionType.SEND_CHAT_MESSAGE:
+            return False, "No discussion in progress"
 
         if action == ActionType.NOMINATE:
             # Only director can nominate
@@ -108,6 +128,29 @@ class ActionValidator:
             return True, None
 
         return False, f"Action {action} not valid during team proposal phase"
+
+    @staticmethod
+    def _validate_chat_message(
+        state: GameState, player: Player, **kwargs: Any
+    ) -> tuple[bool, str | None]:
+        """Validate a chat message against the round-robin and the length cap."""
+        if state.current_speaker_id != player.id:
+            return (
+                False,
+                f"It is {state.current_speaker_id}'s turn to speak, not {player.id}",
+            )
+
+        text = kwargs.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return False, "Chat message must be non-empty text"
+
+        if len(text) > state.chat_max_message_length:
+            return (
+                False,
+                f"Chat message exceeds {state.chat_max_message_length} characters",
+            )
+
+        return True, None
 
     @staticmethod
     def _validate_research_action(
@@ -200,6 +243,13 @@ class ActionValidator:
             return valid_actions
 
         if state.current_phase == Phase.TEAM_PROPOSAL:
+            # During a discussion the only choice is to speak or to stay silent
+            # (OBSERVE, already in the list, forfeits the speaking slot).
+            if state.discussion_active:
+                if player.id == state.current_speaker_id:
+                    valid_actions.append(ActionType.SEND_CHAT_MESSAGE)
+                return valid_actions
+
             # Director actions
             if player.id == state.current_director.id:
                 if not state.nominated_engineer_id:
@@ -297,6 +347,8 @@ class ActionProcessor:
                 ActionProcessor._process_respond_veto(state, player_id, kwargs["agree"])
             elif action == ActionType.USE_POWER:
                 ActionProcessor._process_use_power(state, player_id, **kwargs)
+            elif action == ActionType.SEND_CHAT_MESSAGE:
+                ActionProcessor._process_chat_message(state, player_id, kwargs["text"])
             else:
                 return GameUpdate(
                     success=False,
@@ -311,6 +363,7 @@ class ActionProcessor:
                 state.is_game_over = True
                 state.winners = winners
                 state.current_phase = Phase.GAME_OVER
+                ActionProcessor._clear_discussion(state)
                 state.add_event(
                     EventType.GAME_ENDED,
                     None,
@@ -337,8 +390,130 @@ class ActionProcessor:
 
     @staticmethod
     def _process_observe(state: GameState, player_id: str) -> None:
-        """Process observe action (no state change)."""
+        """Process observe action.
+
+        Normally a no-op, but the current speaker observing during a discussion
+        means "I have nothing to say" and forfeits their speaking slot. Staying
+        silent has to be a real option: otherwise a player who would rather not
+        commit to a claim is forced to invent one.
+        """
         state.add_event(EventType.ACTION_ATTEMPTED, player_id, {"action": "observe"})
+
+        if state.discussion_active and state.current_speaker_id == player_id:
+            state.add_event(
+                EventType.CHAT_MESSAGE,
+                player_id,
+                {"passed": True, "discussion_kind": state.discussion_kind.value}
+                if state.discussion_kind
+                else {"passed": True},
+            )
+            ActionProcessor._advance_discussion(state)
+
+    @staticmethod
+    def _process_chat_message(state: GameState, player_id: str, text: str) -> None:
+        """Record a public chat message and advance the round-robin."""
+        kind = state.discussion_kind
+        entry = ChatEntry(
+            id=str(uuid.uuid4()),
+            speaker_id=player_id,
+            message=text,
+            discussion_kind=kind.value if kind else "unknown",
+            round_number=state.round_number,
+            turn_number=state.turn_number,
+        )
+        state.chat_log.append(entry)
+
+        state.add_event(
+            EventType.CHAT_MESSAGE,
+            player_id,
+            {
+                "message_id": entry.id,
+                "message": text,
+                "discussion_kind": entry.discussion_kind,
+                "round_number": entry.round_number,
+            },
+        )
+
+        ActionProcessor._advance_discussion(state)
+
+    @staticmethod
+    def _start_discussion(state: GameState, kind: DiscussionKind) -> None:
+        """Open a discussion sub-phase, speaking order starting from the director."""
+        if not state.chat_enabled or state.is_game_over:
+            return
+
+        alive_ids = [p.id for p in state.alive_players]
+        if not alive_ids:
+            return
+
+        # Round-robin starting from the current director, wrapping around the table.
+        director_id = state.current_director.id
+        if director_id in alive_ids:
+            start = alive_ids.index(director_id)
+            order = alive_ids[start:] + alive_ids[:start]
+        else:
+            order = alive_ids
+
+        state.discussion_kind = kind
+        state.discussion_order = order
+        state.discussion_speaker_index = 0
+        state.discussion_pass = 0
+
+        state.add_event(
+            EventType.PHASE_TRANSITION,
+            None,
+            {
+                "from_phase": "TeamProposal",
+                "to_phase": f"Discussion:{kind.value}",
+                "speaking_order": list(order),
+                "messages_per_player": state.chat_messages_per_player,
+            },
+        )
+
+    @staticmethod
+    def _advance_discussion(state: GameState) -> None:
+        """Move to the next speaker, ending the discussion after K full passes."""
+        if state.discussion_kind is None:
+            return
+
+        state.discussion_speaker_index += 1
+        if state.discussion_speaker_index < len(state.discussion_order):
+            return
+
+        # One full pass around the table completed.
+        state.discussion_speaker_index = 0
+        state.discussion_pass += 1
+        if state.discussion_pass < state.chat_messages_per_player:
+            return
+
+        ActionProcessor._end_discussion(state)
+
+    @staticmethod
+    def _clear_discussion(state: GameState) -> None:
+        """Drop any open discussion without emitting a transition (game is over)."""
+        state.discussion_kind = None
+        state.discussion_order = []
+        state.discussion_speaker_index = 0
+        state.discussion_pass = 0
+
+    @staticmethod
+    def _end_discussion(state: GameState) -> None:
+        """Close the discussion sub-phase and return to normal team proposal play."""
+        kind = state.discussion_kind
+        state.discussion_kind = None
+        state.discussion_order = []
+        state.discussion_speaker_index = 0
+        state.discussion_pass = 0
+
+        if kind is not None:
+            state.add_event(
+                EventType.PHASE_TRANSITION,
+                None,
+                {
+                    "from_phase": f"Discussion:{kind.value}",
+                    "to_phase": "TeamProposal",
+                },
+            )
 
     @staticmethod
     def _process_nominate(state: GameState, player_id: str, target_id: str) -> None:
@@ -349,6 +524,9 @@ class ActionProcessor:
             player_id,
             {"action": "nominate", "target_id": target_id},
         )
+
+        # The table gets to discuss the proposed team before voting on it.
+        ActionProcessor._start_discussion(state, DiscussionKind.PRE_VOTE)
 
     @staticmethod
     def _process_call_emergency_safety(state: GameState, player_id: str) -> None:
@@ -416,6 +594,7 @@ class ActionProcessor:
                     state.is_game_over = True
                     state.winners = winners
                     state.current_phase = Phase.GAME_OVER
+                    ActionProcessor._clear_discussion(state)
                     state.add_event(
                         EventType.GAME_ENDED,
                         None,
@@ -433,6 +612,7 @@ class ActionProcessor:
                         state.is_game_over = True
                         state.winners = winners
                         state.current_phase = Phase.GAME_OVER
+                        ActionProcessor._clear_discussion(state)
                         state.add_event(
                             EventType.GAME_ENDED,
                             None,
@@ -527,6 +707,7 @@ class ActionProcessor:
                     state.is_game_over = True
                     state.winners = winners
                     state.current_phase = Phase.GAME_OVER
+                    ActionProcessor._clear_discussion(state)
                     state.add_event(
                         EventType.GAME_ENDED,
                         None,
@@ -614,6 +795,9 @@ class ActionProcessor:
         state.emergency_safety_called = False
         state.director_cards = None
         state.engineer_cards = None
+
+        # A fresh proposal opens with discussion before the director nominates.
+        ActionProcessor._start_discussion(state, DiscussionKind.PRE_NOMINATION)
 
     @staticmethod
     def _prepare_next_round(state: GameState) -> None:

@@ -7,18 +7,24 @@ requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.21.0",
     "alembic>=1.16.2",
-    "fastapi[standard]>=0.115.14",
+    "anthropic>=0.40.0",
     "greenlet>=3.2.3",
+    "openai>=1.60.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.10.1",
     "pytest-asyncio>=1.0.0",
+    "pyyaml>=6.0.0",
     "sqlmodel>=0.0.24",
+    "typer>=0.15.0",
 ]
+
+[project.scripts]
+secretagi = "secret_agi.cli:app"
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.3.0",
-    "mypy>=1.8.0",
+    "mypy>=1.8.0,<2",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
@@ -72,10 +78,18 @@ warn_no_return = true
 warn_unreachable = false
 strict_equality = true
 ignore_missing_imports = false
+exclude = ["^alembic/versions/"]
 
 [[tool.mypy.overrides]]
 module = "secret_agi.database.*"
 ignore_errors = true
+
+# Provider SDKs ship type stubs that mypy chokes on when followed; we only need
+# their public surface, which our adapters wrap in typed helpers anyway.
+[[tool.mypy.overrides]]
+module = ["anthropic.*", "openai.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -85,9 +99,10 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
-    "mypy>=1.16.1",
+    "mypy>=1.16.1,<2",
     "pytest>=8.4.1",
     "ruff>=0.12.2",
+    "types-PyYAML>=6.0.0",
 ]
 test = [
     "pytest>=8.4.1",

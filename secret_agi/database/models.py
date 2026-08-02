@@ -119,8 +119,58 @@ class AgentMetric(SQLModel, table=True):
     tokens_used: int | None = Field(default=None)
     response_time_ms: int | None = Field(default=None)
     invalid_attempts: int = Field(default=0)
+    provider_failure: bool = Field(default=False, index=True)
+    """The provider never answered this turn and the harness substituted an
+    action. Harness noise, not model behaviour: analysis excludes these turns
+    rather than scoring the substituted action as a decision."""
     internal_state_size: int | None = Field(default=None)
     memory_usage_mb: float | None = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class BeliefProbe(SQLModel, table=True):
+    """Out-of-band belief elicitation.
+
+    Probes are never visible to other players and never enter game state, so they
+    measure a player's beliefs without influencing the game producing them.
+    """
+
+    __tablename__ = "belief_probes"
+
+    id: str = Field(primary_key=True, default_factory=lambda: str(uuid.uuid4()))
+    game_id: str = Field(foreign_key="games.id", index=True)
+    player_id: str = Field(index=True)
+    round_number: int = Field(index=True)
+    turn_number: int = Field()
+    beliefs: dict[str, Any] = Field(sa_column=Column(JSON))
+    """{target_player_id: {"Safety": p, "Accelerationist": p, "AGI": p}}"""
+    tokens_used: int | None = Field(default=None)
+    response_time_ms: int | None = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ChatLabel(SQLModel, table=True):
+    """Judge labelling of a chat message against ground truth.
+
+    Ground truth (speaker's real role and private knowledge) is known to the
+    harness, so every message can be labelled after the fact — which is what makes
+    the transcripts a labelled deception dataset rather than just a log.
+    """
+
+    __tablename__ = "chat_labels"
+
+    id: str = Field(primary_key=True, default_factory=lambda: str(uuid.uuid4()))
+    game_id: str = Field(foreign_key="games.id", index=True)
+    message_id: str = Field(index=True)
+    speaker_id: str = Field(index=True)
+    label: str = Field(index=True)  # lie | true | unverifiable
+    necessary: bool | None = Field(default=None)
+    """For a lie: was it mechanically required by the speaker's role?"""
+    rationale: str | None = Field(default=None, sa_column=Column(Text))
+    commitment: str | None = Field(default=None, sa_column=Column(Text))
+    """A commitment extracted from the message ("I will X"), if any."""
+    commitment_kept: bool | None = Field(default=None)
+    judge_model: str = Field()
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

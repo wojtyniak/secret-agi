@@ -291,7 +291,7 @@ class TestGameScenarios:
             # Get valid actions and make a decision
             valid_actions = engine.get_valid_actions(acting_player)
             if valid_actions:
-                action, kwargs = players[acting_player].choose_action(
+                action, kwargs = await players[acting_player].choose_action(
                     state, valid_actions
                 )
                 result = await engine.perform_action(acting_player, action, **kwargs)

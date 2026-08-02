@@ -99,6 +99,7 @@ class TestEngineerEligibilityFix:
 
         # Mark one player as last engineer
         engineer = state.get_player_by_id("p2")
+        assert engineer is not None
         engineer.was_last_engineer = True
 
         # Verify p2 is not eligible before auto-publish
@@ -171,6 +172,7 @@ class TestDeckExhaustionHandling:
 
         if state.current_phase == Phase.RESEARCH:
             # Should have given director whatever cards were available
+            assert state.director_cards is not None
             assert len(state.director_cards) <= 2
             assert len(state.deck) == 0
 
@@ -231,7 +233,11 @@ class TestVoteValidationWithDeadPlayers:
         # Set up nomination
         director = state.current_director.id
         eligible = GameRules.get_eligible_engineers(state)
-        alive_eligible = [p for p in eligible if state.get_player_by_id(p).alive]
+        alive_eligible = [
+            p
+            for p in eligible
+            if (candidate := state.get_player_by_id(p)) is not None and candidate.alive
+        ]
 
         if alive_eligible:
             target = alive_eligible[0]
@@ -347,6 +353,7 @@ class TestWinConditionTiming:
         if state.current_phase == Phase.RESEARCH:
             # Director discards a safe paper
             safe_paper_id = None
+            assert state.director_cards is not None
             for paper in state.director_cards:
                 if paper.capability == 0:
                     safe_paper_id = paper.id
@@ -360,6 +367,7 @@ class TestWinConditionTiming:
 
                 # Engineer publishes the winning paper
                 winning_paper_id = None
+                assert state.engineer_cards is not None
                 for paper in state.engineer_cards:
                     if paper.capability == 1 and paper.safety == 0:
                         winning_paper_id = paper.id
@@ -374,7 +382,7 @@ class TestWinConditionTiming:
                     # Win condition should be detected immediately
                     assert state.capability >= 15
                     assert state.is_game_over
-                    assert state.current_phase == Phase.GAME_OVER
+                    assert state.current_phase is Phase.GAME_OVER  # type: ignore[comparison-overlap]
 
     @pytest.mark.asyncio
     async def test_win_condition_checked_after_auto_publish(self):
@@ -458,7 +466,10 @@ class TestPaperManagement:
         # Research phase operations
         if state.current_phase == Phase.RESEARCH:
             # Track papers before operations
-            papers_before = len(state.deck) + len(state.discard) + len(state.director_cards)
+            assert state.director_cards is not None
+            papers_before = (
+                len(state.deck) + len(state.discard) + len(state.director_cards)
+            )
 
             # Director discards one paper
             paper_to_discard = state.director_cards[0].id

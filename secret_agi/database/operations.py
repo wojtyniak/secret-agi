@@ -17,6 +17,8 @@ from .enums import GameStatus, RecoveryType
 from .models import (
     Action,
     AgentMetric,
+    BeliefProbe,
+    ChatLabel,
     ChatMessage,
     Event,
     Game,
@@ -298,6 +300,7 @@ class GameOperations:
         tokens_used: int | None = None,
         response_time_ms: int | None = None,
         invalid_attempts: int = 0,
+        provider_failure: bool = False,
         internal_state_size: int | None = None,
         memory_usage_mb: float | None = None,
     ) -> str:
@@ -312,6 +315,7 @@ class GameOperations:
             tokens_used=tokens_used,
             response_time_ms=response_time_ms,
             invalid_attempts=invalid_attempts,
+            provider_failure=provider_failure,
             internal_state_size=internal_state_size,
             memory_usage_mb=memory_usage_mb,
             created_at=datetime.now(UTC),
@@ -320,6 +324,135 @@ class GameOperations:
         session.add(metric)
         await session.commit()
         return metric_id
+
+    @staticmethod
+    async def record_belief_probe(
+        session: AsyncSession,
+        game_id: str,
+        player_id: str,
+        round_number: int,
+        turn_number: int,
+        beliefs: dict[str, Any],
+        tokens_used: int | None = None,
+        response_time_ms: int | None = None,
+    ) -> str:
+        """Record an out-of-band belief probe."""
+        probe_id = str(uuid.uuid4())
+
+        probe = BeliefProbe(
+            id=probe_id,
+            game_id=game_id,
+            player_id=player_id,
+            round_number=round_number,
+            turn_number=turn_number,
+            beliefs=beliefs,
+            tokens_used=tokens_used,
+            response_time_ms=response_time_ms,
+            created_at=datetime.now(UTC),
+        )
+
+        session.add(probe)
+        await session.commit()
+        return probe_id
+
+    @staticmethod
+    async def record_chat_label(
+        session: AsyncSession,
+        game_id: str,
+        message_id: str,
+        speaker_id: str,
+        label: str,
+        judge_model: str,
+        necessary: bool | None = None,
+        rationale: str | None = None,
+        commitment: str | None = None,
+        commitment_kept: bool | None = None,
+    ) -> str:
+        """Record a judge label for a chat message."""
+        label_id = str(uuid.uuid4())
+
+        record = ChatLabel(
+            id=label_id,
+            game_id=game_id,
+            message_id=message_id,
+            speaker_id=speaker_id,
+            label=label,
+            necessary=necessary,
+            rationale=rationale,
+            commitment=commitment,
+            commitment_kept=commitment_kept,
+            judge_model=judge_model,
+            created_at=datetime.now(UTC),
+        )
+
+        session.add(record)
+        await session.commit()
+        return label_id
+
+    @staticmethod
+    async def get_chat_messages_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[ChatMessage]:
+        """Get all chat messages for a specific game, in order."""
+        query = (
+            select(ChatMessage)  # type: ignore
+            .where(ChatMessage.game_id == game_id)  # type: ignore
+            .order_by(ChatMessage.turn_number, ChatMessage.created_at)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_belief_probes_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[BeliefProbe]:
+        """Get all belief probes for a specific game, in order."""
+        query = (
+            select(BeliefProbe)  # type: ignore
+            .where(BeliefProbe.game_id == game_id)  # type: ignore
+            .order_by(BeliefProbe.round_number, BeliefProbe.created_at)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_chat_labels_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[ChatLabel]:
+        """Get all judge labels for a specific game."""
+        query = select(ChatLabel).where(ChatLabel.game_id == game_id)  # type: ignore
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_agent_metrics_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[AgentMetric]:
+        """Get all per-decision agent metrics for a specific game."""
+        query = (
+            select(AgentMetric)  # type: ignore
+            .where(AgentMetric.game_id == game_id)  # type: ignore
+            .order_by(AgentMetric.turn_number, AgentMetric.created_at)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_state_snapshots_for_game(
+        session: AsyncSession, game_id: str
+    ) -> list[tuple[int, dict[str, Any]]]:
+        """Get every per-turn state snapshot for a game, oldest first."""
+        query = (
+            select(GameStateDB.turn_number, GameStateDB.state_data)  # type: ignore
+            .where(GameStateDB.game_id == game_id)  # type: ignore
+            .order_by(GameStateDB.turn_number)  # type: ignore
+        )
+
+        result = await session.execute(query)
+        return [(row[0], row[1]) for row in result.fetchall()]
 
     @staticmethod
     async def get_actions_for_game(session: AsyncSession, game_id: str) -> list[Action]:

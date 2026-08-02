@@ -352,7 +352,7 @@ class TestRandomPlayerIntegration:
             assert ActionType.NOMINATE in valid_actions
 
             # Player should be able to choose an action
-            action, params = player.choose_action(state, valid_actions)
+            action, params = await player.choose_action(state, valid_actions)
             assert action in valid_actions
 
             # Player should be able to perform the action
@@ -376,7 +376,7 @@ class TestRandomPlayerIntegration:
 
         # Initialize with game start
         state = player.observe_game_state()
-        player.on_game_start(state)
+        await player.on_game_start(state)
 
         # Player should have role-based biases
         assert player.role is not None
@@ -401,7 +401,7 @@ class TestRandomPlayerIntegration:
         # Initialize all players
         for player in players.values():
             state = player.observe_game_state()
-            player.on_game_start(state)
+            await player.on_game_start(state)
 
         # Play a few turns with random players
         for _turn in range(10):
@@ -418,13 +418,13 @@ class TestRandomPlayerIntegration:
                 ]
 
                 if non_observe_actions:
-                    action, params = player.choose_action(state, valid_actions)
+                    action, params = await player.choose_action(state, valid_actions)
                     result = await player.perform_action(action, **params)
 
                     if result.success:
                         # Notify all players of the update
                         for p in players.values():
-                            p.on_game_update(result)
+                            await p.on_game_update(result)
                         action_taken = True
                         break
 

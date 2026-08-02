@@ -1,0 +1,44 @@
+# A mixed-lobby run: the cross-model cooperation matrix comes from configs like
+# this one. Every model plays alongside every other, and seat positions rotate
+# across the schedule.
+#
+#   uv run secretagi run configs/mixed-lobby.yaml
+name: mixed-lobby
+player_count: 5
+games: 40
+seed: 11
+parallelism: 4
+database_url: sqlite:///runs/mixed-lobby.db
+
+players:
+  - name: gpt
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    seats: 2
+
+  - name: claude
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key_env: ANTHROPIC_API_KEY
+    seats: 2
+
+  # Any OpenAI-compatible endpoint works through the same adapter.
+  - name: openrouter
+    provider: openai
+    model: deepseek/deepseek-chat
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    seats: 1
+
+chat:
+  enabled: true
+  messages_per_player: 2
+
+judge:
+  enabled: true
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  api_key_env: ANTHROPIC_API_KEY
+
+max_total_tokens: 50000000
