@@ -133,6 +133,24 @@ were just wrong.
 | Deck count always rendered "unknown" | Public information under the rules, and deck exhaustion is a win condition |
 | The fallback could burn one-shot actions | A broken agent could spend the phase's Emergency Safety call or veto a round away |
 
+A second round caught two more:
+
+| Issue | Why it mattered |
+|---|---|
+| `provider_failure` was a report footnote, not an exclusion | The marker existed but never reached an `AgentMetric` row and nothing in `analysis/` read it, so a substituted random vote was still scored as coordination. It now sits on the metric row, numbered with the action it produced, and the scorer drops both |
+| `_already_judged` treated *any* label as done | A kill part-way through judging one game left it permanently half-labelled, and every per-message metric then ran on a truncated denominator with nothing flagging it. Judging is now idempotent per message |
+
+Fixing the first exposed a latent off-by-one: metric rows were numbered with the
+turn *before* the action they described, because the engine increments the turn
+counter as it records the action. Nothing depended on that until the exclusion
+needed to join the two, at which point it would have dropped an innocent action
+and kept the substituted one — silently, and in the wrong direction. A test now
+asserts every metric row lines up with a real action.
+
+The same pass brought the alembic chain up to date: `belief_probes` and
+`chat_labels` were only ever created by `SQLModel.metadata.create_all`, so a
+database built with `alembic upgrade head` was missing them entirely.
+
 Two of these are worth internalising rather than just noting. **The seat-rotation
 bug is the cautionary one:** the docstring, METHODOLOGY and a passing test all
 described a control that the code did not implement, because the test only
@@ -273,6 +291,7 @@ A short list for whoever touches this next.
 | A resumed run == an uninterrupted run | `test_run_orchestrator.py::test_a_resumed_run_matches_an_uninterrupted_one` | game seeds become stored rather than derived |
 | Nothing in CI calls a real API | structural — tests only construct `MockAdapter` | someone adds a test that builds a real adapter |
 | Chat off by default | `test_chat.py::TestChatDisabledByDefault` | `GameConfig.chat_enabled` default flips |
+| A metric row is numbered with the action it produced | `test_match_integration.py::test_a_metric_row_lines_up_with_the_action_it_produced` | `_record_metrics` moves relative to `perform_action` |
 
 The prompt-hygiene one deserves emphasis: it is a *hard requirement*, not a
 preference. If those tests ever fail, the correct response is to fix the prompt,

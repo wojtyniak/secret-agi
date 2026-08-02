@@ -179,6 +179,71 @@ class TestPersistedArtefacts:
                 assert probe.player_id not in probe.beliefs
 
     @pytest.mark.asyncio
+    async def test_a_metric_row_lines_up_with_the_action_it_produced(self):
+        """The join analysis relies on to drop failed turns.
+
+        A metric numbered one turn off would exclude an innocent action and keep
+        the substituted one — silently, and in the wrong direction.
+        """
+        ids = [f"p{i}" for i in range(5)]
+        result = await run_game(
+            mixed_lobby(ids, seed=11), config=chat_config(ids, seed=23), database_url=DB
+        )
+
+        async with get_async_session() as session:
+            actions = await GameOperations.get_actions_for_game(session, result.game_id)
+            metrics = await GameOperations.get_agent_metrics_for_game(
+                session, result.game_id
+            )
+
+        assert metrics
+        by_turn = {(a.player_id, a.turn_number) for a in actions}
+        assert all((m.player_id, m.turn_number) in by_turn for m in metrics)
+
+    @pytest.mark.asyncio
+    async def test_a_provider_failure_is_recorded_on_the_turn_it_happened(self):
+        """Without the flag on the row, analysis cannot tell which turn was noise."""
+        from secret_agi.providers import Decision
+
+        class DeadProvider(MockAdapter):
+            async def decide(self, ctx):
+                decision = await super().decide(ctx)
+                return Decision(
+                    action=decision.action,
+                    arguments=decision.arguments,
+                    provider_failure=True,
+                )
+
+        ids = [f"p{i}" for i in range(5)]
+        players = [LLMPlayer(pid, DeadProvider(seed=i)) for i, pid in enumerate(ids)]
+        result = await run_game(
+            players, config=chat_config(ids, seed=29), database_url=DB
+        )
+
+        async with get_async_session() as session:
+            metrics = await GameOperations.get_agent_metrics_for_game(
+                session, result.game_id
+            )
+
+        assert metrics
+        assert all(m.provider_failure for m in metrics)
+
+    @pytest.mark.asyncio
+    async def test_a_healthy_run_records_no_provider_failures(self):
+        ids = [f"p{i}" for i in range(5)]
+        result = await run_game(
+            mixed_lobby(ids, seed=12), config=chat_config(ids, seed=31), database_url=DB
+        )
+
+        async with get_async_session() as session:
+            metrics = await GameOperations.get_agent_metrics_for_game(
+                session, result.game_id
+            )
+
+        assert metrics
+        assert not any(m.provider_failure for m in metrics)
+
+    @pytest.mark.asyncio
     async def test_token_usage_is_accounted(self):
         ids = [f"p{i}" for i in range(5)]
         result = await run_game(

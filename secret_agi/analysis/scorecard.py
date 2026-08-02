@@ -62,6 +62,36 @@ class GameRecord:
     def players_for(self, model: str) -> list[str]:
         return [pid for pid, m in self.models.items() if m == model]
 
+    def failed_turns(self) -> set[tuple[str, int]]:
+        """(player, turn) pairs where the provider never answered.
+
+        The harness substituted an action on those turns, so whatever sits in the
+        transcript there is noise: scoring it would count a random vote toward
+        Circle of Trust and a forced silence toward a chat denominator.
+        """
+        return {
+            (metric.player_id, metric.turn_number)
+            for metric in self.metrics
+            if metric.provider_failure
+        }
+
+    def scored_actions(self) -> list[Action]:
+        """Actions that a model actually chose."""
+        failed = self.failed_turns()
+        return [
+            action
+            for action in self.actions
+            if (action.player_id, action.turn_number) not in failed
+        ]
+
+    def scored_metrics(self, player_id: str) -> list[AgentMetric]:
+        """This player's decisions, excluding turns the provider never answered."""
+        return [
+            metric
+            for metric in self.metrics
+            if metric.player_id == player_id and not metric.provider_failure
+        ]
+
     def won(self, player_id: str) -> bool:
         return self.roles.get(player_id, "") in self.winners
 
@@ -244,7 +274,7 @@ def build_scorecard(model: str, games: Sequence[GameRecord]) -> Scorecard:
 
             game_commitments.extend(_commitments_kept(game, player_id))
 
-            player_metrics = [m for m in game.metrics if m.player_id == player_id]
+            player_metrics = game.scored_metrics(player_id)
             decisions += len(player_metrics)
             if player_metrics:
                 game_invalid.append(
@@ -398,9 +428,14 @@ def _ally_agreement(game: GameRecord, player_id: str, role: str) -> float | None
     verify each other, so agreement here is coordination under mutual opacity
     rather than coordination between players who simply know each other.
     """
+    # `scored_actions` rather than `actions`: a turn the provider never answered
+    # carries a vote the harness picked at random, and counting it would score
+    # harness noise as coordination.
+    scored = game.scored_actions()
+
     own_votes = {
         action.turn_number: (action.action_data or {}).get("vote")
-        for action in game.actions
+        for action in scored
         if action.player_id == player_id
         and action.action_type == "vote_team"
         and action.is_valid
@@ -423,7 +458,7 @@ def _ally_agreement(game: GameRecord, player_id: str, role: str) -> float | None
     ballots = _ballots_by_turn(game)
 
     ally_votes: dict[str, list[bool]] = {}
-    for action in game.actions:
+    for action in scored:
         if (
             action.player_id in allies
             and action.action_type == "vote_team"

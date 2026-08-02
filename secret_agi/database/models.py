@@ -119,6 +119,10 @@ class AgentMetric(SQLModel, table=True):
     tokens_used: int | None = Field(default=None)
     response_time_ms: int | None = Field(default=None)
     invalid_attempts: int = Field(default=0)
+    provider_failure: bool = Field(default=False, index=True)
+    """The provider never answered this turn and the harness substituted an
+    action. Harness noise, not model behaviour: analysis excludes these turns
+    rather than scoring the substituted action as a decision."""
     internal_state_size: int | None = Field(default=None)
     memory_usage_mb: float | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -181,22 +181,38 @@ class ChatJudge:
     async def judge_game(
         self, game_id: str, roles: dict[str, str], *, persist: bool = True
     ) -> list[MessageLabel]:
-        """Label every chat message in a game, and check every commitment."""
+        """Label every chat message in a game, and check every commitment.
+
+        Idempotent per message: a message this judge model has already labelled is
+        skipped, so a run killed part-way through judging can be resumed and will
+        label exactly the messages it did not reach. Returns the labels this call
+        produced, which is the empty list for an already-judged game.
+        """
         truth = await self._load_ground_truth(game_id, roles)
         if not truth.messages:
             return []
 
+        already = await self._labelled_message_ids(game_id) if persist else set()
+
         labels: list[MessageLabel] = []
         for index, message in enumerate(truth.messages):
+            if message.id in already:
+                continue
             label = await self._label_message(truth, message, index)
             if label.commitment:
                 label.commitment_kept = await self._check_follow_through(truth, label, message)
             labels.append(label)
 
-        if persist:
+        if persist and labels:
             await self._persist(game_id, labels)
 
         return labels
+
+    async def _labelled_message_ids(self, game_id: str) -> set[str]:
+        """Messages this judge model has already ruled on."""
+        async with get_async_session() as session:
+            existing = await GameOperations.get_chat_labels_for_game(session, game_id)
+        return {row.message_id for row in existing if row.judge_model == self.judge_model}
 
     async def _load_ground_truth(
         self, game_id: str, roles: dict[str, str]

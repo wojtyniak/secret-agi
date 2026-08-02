@@ -405,6 +405,70 @@ class TestJudgeIntegration:
             )
 
     @pytest.mark.asyncio
+    async def test_a_partly_judged_game_is_finished_not_skipped(self, tmp_path):
+        """A kill mid-judging must not leave a game permanently half-labelled.
+
+        Treating "has any label" as done would silently score every per-message
+        metric on a truncated denominator, with nothing flagging it.
+        """
+        from sqlalchemy import delete
+
+        from secret_agi.database.connection import get_async_session
+        from secret_agi.database.models import ChatLabel
+        from secret_agi.database.operations import GameOperations
+
+        run_config = config(
+            tmp_path,
+            games=1,
+            judge={"enabled": True, "provider": "mock", "model": "mock-judge"},
+        )
+        first = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+        game_id = first.results[0].game_id
+
+        async with get_async_session() as session:
+            labels = await GameOperations.get_chat_labels_for_game(session, game_id)
+            complete = len(labels)
+            assert complete > 1, "need more than one message to truncate"
+            # Simulate the kill: drop all but the first label.
+            for row in labels[1:]:
+                await session.execute(
+                    delete(ChatLabel).where(ChatLabel.id == row.id)  # type: ignore[arg-type]
+                )
+            await session.commit()
+
+        await RunOrchestrator(run_config, run_dir=tmp_path).run(resume=True)
+
+        async with get_async_session() as session:
+            after = await GameOperations.get_chat_labels_for_game(session, game_id)
+
+        assert len(after) == complete, "the missing messages were never labelled"
+        # And no message picked up a second label on the way.
+        assert len({row.message_id for row in after}) == complete
+
+    @pytest.mark.asyncio
+    async def test_resume_carries_forward_the_judge_spend(self, tmp_path):
+        """Judging happens after the games, so its spend belongs to no game.
+
+        Without recording it on the run state, a resumed run's cost report would
+        omit whatever the original run already paid the judge.
+        """
+        run_config = config(
+            tmp_path,
+            games=2,
+            parallelism=1,
+            judge={"enabled": True, "provider": "mock", "model": "mock-judge"},
+        )
+        first = await RunOrchestrator(run_config, run_dir=tmp_path).run()
+        spent = first.cost["per_model"]["mock-judge"]["input_tokens"]
+        assert spent > 0
+
+        second = await RunOrchestrator(run_config, run_dir=tmp_path).run(resume=True)
+
+        # Everything was judged already, so the resumed run pays nothing more —
+        # but still reports what the run as a whole spent.
+        assert second.cost["per_model"]["mock-judge"]["input_tokens"] == spent
+
+    @pytest.mark.asyncio
     async def test_judge_spend_is_counted(self, tmp_path):
         run_config = config(
             tmp_path,

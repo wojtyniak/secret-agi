@@ -300,6 +300,7 @@ class GameOperations:
         tokens_used: int | None = None,
         response_time_ms: int | None = None,
         invalid_attempts: int = 0,
+        provider_failure: bool = False,
         internal_state_size: int | None = None,
         memory_usage_mb: float | None = None,
     ) -> str:
@@ -314,6 +315,7 @@ class GameOperations:
             tokens_used=tokens_used,
             response_time_ms=response_time_ms,
             invalid_attempts=invalid_attempts,
+            provider_failure=provider_failure,
             internal_state_size=internal_state_size,
             memory_usage_mb=memory_usage_mb,
             created_at=datetime.now(UTC),

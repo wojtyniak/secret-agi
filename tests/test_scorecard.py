@@ -105,7 +105,14 @@ class Fake:
         ]
 
     @staticmethod
-    def metric(player_id: str, *, tokens: int = 100, invalid: int = 0) -> Any:
+    def metric(
+        player_id: str,
+        *,
+        tokens: int = 100,
+        invalid: int = 0,
+        turn_number: int = 1,
+        provider_failure: bool = False,
+    ) -> Any:
         return type(
             "AgentMetric",
             (),
@@ -113,7 +120,8 @@ class Fake:
                 "player_id": player_id,
                 "tokens_used": tokens,
                 "invalid_attempts": invalid,
-                "turn_number": 1,
+                "turn_number": turn_number,
+                "provider_failure": provider_failure,
             },
         )()
 
@@ -418,6 +426,64 @@ class TestCommitmentsAndCosts:
         assert card.decisions == 2
         assert card.tokens_per_game.value == 300.0
         assert card.invalid_action_rate.value == 1.0
+
+
+class TestProviderFailuresAreExcluded:
+    """A turn the provider never answered is harness noise, not model behaviour.
+
+    The harness substitutes an action so the game can continue; scoring it would
+    attribute a random vote, and the cost of a call that produced nothing, to the
+    model as if it had decided.
+    """
+
+    def test_a_failed_turn_is_not_counted_as_a_decision(self):
+        metrics = [
+            Fake.metric("p0", tokens=100, invalid=0, turn_number=1),
+            Fake.metric("p0", tokens=900, invalid=5, turn_number=2, provider_failure=True),
+        ]
+        card = build_scorecard("model-a", [record(metrics=metrics)])
+
+        assert card.decisions == 1
+        assert card.tokens_per_game.value == 100.0
+        # The substituted turn's invalid attempts are the harness's, not the model's.
+        assert card.invalid_action_rate.value == 0.0
+
+    def test_a_substituted_vote_does_not_count_toward_coordination(self):
+        """p0's vote on the second ballot came from the harness, so it is dropped.
+
+        Without the exclusion p0 would score (1.0 + 0.0) / 2 = 0.5 against p1 and
+        p2; with it, only the first ballot remains and every Safety seat agrees.
+        """
+        actions = [
+            Fake.vote("p0", 1, True),
+            Fake.vote("p1", 2, True),
+            Fake.vote("p2", 3, True),
+            Fake.vote("p0", 7, False),
+            Fake.vote("p1", 8, True),
+            Fake.vote("p2", 9, True),
+        ]
+        snapshots = Fake.ballot_snapshots(
+            {
+                1: (1, "p3"), 2: (1, "p3"), 3: (1, "p3"),
+                7: (2, "p4"), 8: (2, "p4"), 9: (2, "p4"),
+            }
+        )
+        metrics = [Fake.metric("p0", turn_number=7, provider_failure=True)]
+        card = build_scorecard(
+            "model-a",
+            [record(actions=actions, snapshots=snapshots, metrics=metrics)],
+        )
+
+        assert card.circle_of_trust.value == 1.0
+
+    def test_a_clean_run_is_unaffected(self):
+        """No failures means the filter changes nothing."""
+        actions = [Fake.vote("p0", 1, True), Fake.vote("p1", 2, True)]
+        snapshots = Fake.ballot_snapshots({1: (1, "p3"), 2: (1, "p3")})
+        game = record(actions=actions, snapshots=snapshots)
+
+        assert game.failed_turns() == set()
+        assert len(game.scored_actions()) == len(game.actions)
 
 
 class TestReportShape:

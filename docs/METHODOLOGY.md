@@ -300,7 +300,16 @@ the cost report under the judge model's name.
 
 **Resume carries spend forward.** A resumed run seeds its tracker from the
 recorded usage of the games it restored, so a run capped at $50 and killed at $49
-cannot resume and spend another $50.
+cannot resume and spend another $50. Judging happens after the games and so
+belongs to no single one of them; its spend is carried on the run state instead,
+which is why a resumed run's cost report still shows what the original run paid
+the judge.
+
+**Judging is idempotent per message.** A game is re-judged only for the messages
+no label exists for, keyed on (message, judge model). A run killed part-way
+through judging one game therefore resumes and finishes it — the alternative,
+treating any label as "done", would leave that game permanently half-labelled and
+silently compute every per-message metric on a truncated denominator.
 
 Models without a configured price contribute tokens but no dollars and are
 reported explicitly as `unpriced_models`, never silently counted as free.
@@ -335,6 +344,14 @@ jitter). Only after retries are exhausted does a turn fall back, and it is then
 marked `provider_failure` so analysis can exclude it. Without this, one rate-limit
 blip during a nomination would put a *random* engineer choice into the transcript,
 indistinguishable from the model actually choosing it.
+
+**Failed turns are excluded from every metric, not just counted.** The marker is
+written to the turn's `AgentMetric` row, numbered with the action it produced, so
+the scorer drops both the substituted action and the decision itself: the random
+vote never reaches Circle of Trust, and the turn counts toward neither the
+decision total, the invalid-action rate nor tokens per game. The per-player
+failure counts still appear in the run report, so a run degraded by an unreliable
+provider is visible rather than silently thinned.
 
 ---
 

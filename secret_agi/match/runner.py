@@ -47,6 +47,11 @@ class RunState:
     completed: dict[int, dict[str, Any]] = field(default_factory=dict)
     """Finished games by schedule index."""
 
+    judge_usage: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Judge spend so far, by model. Judging happens after the games, so it is
+    not attributable to any one of them — without recording it here a resumed
+    run's cost report would omit whatever the original run already spent."""
+
     def to_json(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -54,6 +59,7 @@ class RunState:
             "seed": self.seed,
             "games_total": self.games_total,
             "completed": {str(k): v for k, v in self.completed.items()},
+            "judge_usage": self.judge_usage,
         }
 
     @classmethod
@@ -64,6 +70,7 @@ class RunState:
             seed=raw["seed"],
             games_total=raw["games_total"],
             completed={int(k): v for k, v in raw.get("completed", {}).items()},
+            judge_usage=raw.get("judge_usage", {}),
         )
 
 
@@ -153,6 +160,10 @@ class RunOrchestrator:
         # the tracker, a run capped at $50 and killed at $49 would resume from
         # $0 and spend another $50.
         self._seed_cost_from(results)
+        # Judging is not attributable to any single game, so its spend is carried
+        # on the run state rather than on a result.
+        for model, usage in state.judge_usage.items():
+            self.cost.record(model, TokenUsage(**usage))
         stopped: str | None = None
 
         semaphore = asyncio.Semaphore(self.config.parallelism)
@@ -183,7 +194,7 @@ class RunOrchestrator:
                     task.cancel()
 
         if self.config.judge.enabled:
-            await self._judge_all(results)
+            await self._judge_all(results, state)
 
         return RunReport(
             run_id=state.run_id,
@@ -257,28 +268,39 @@ class RunOrchestrator:
             )
         return self._provider_locks[provider]
 
-    async def _judge_all(self, results: list[GameResult]) -> None:
+    async def _judge_all(self, results: list[GameResult], state: RunState) -> None:
         judge_adapter = self.adapter_factory(
             self.config.judge.provider,
             self.config.judge.model,
             **self.config.judge.adapter_options(),
         )
-        judge = ChatJudge(
-            judge_adapter,
-            judge_model=self.config.judge.model,
-            # Judge calls are real spend and belong in the cost report.
-            on_usage=lambda usage: self.cost.record(self.config.judge.model, usage),
-        )
-        for result in results:
-            if not result.completed:
-                continue
-            # A resumed run restores already-judged games. Re-judging them would
-            # double the judge bill and write a second ChatLabel row per message,
-            # inflating every per-message metric's n and narrowing its interval.
-            if await _already_judged(result.game_id):
-                logger.debug("game %s already judged; skipping", result.game_id)
-                continue
-            await judge.judge_game(result.game_id, result.roles)
+        model = self.config.judge.model
+        spent = TokenUsage(**state.judge_usage.get(model, {}))
+
+        def account(usage: TokenUsage) -> None:
+            # Judge calls are real spend and belong in the cost report — and on
+            # the run state, so a resume does not lose what was already spent.
+            nonlocal spent
+            spent = spent + usage
+            state.judge_usage[model] = _usage_to_json(spent)
+            self.cost.record(model, usage)
+
+        judge = ChatJudge(judge_adapter, judge_model=model, on_usage=account)
+        try:
+            for result in results:
+                if not result.completed:
+                    continue
+                # A resumed run restores already-judged games. Re-judging them
+                # would double the judge bill and write a second ChatLabel row
+                # per message, inflating every per-message metric's n and
+                # narrowing its interval.
+                if await _already_judged(result.game_id, model):
+                    logger.debug("game %s already judged; skipping", result.game_id)
+                    continue
+                await judge.judge_game(result.game_id, result.roles)
+        finally:
+            # Saved even if judging is interrupted: the spend happened either way.
+            self._save_state(state)
 
     def _seed_cost_from(self, results: list[GameResult]) -> None:
         """Replay restored games' recorded spend into a fresh tracker."""
@@ -353,14 +375,24 @@ class _Throttled:
         await self._adapter.aclose()
 
 
-async def _already_judged(game_id: str) -> bool:
-    """Whether a game's chat already carries judge labels."""
+async def _already_judged(game_id: str, judge_model: str) -> bool:
+    """Whether every message in a game already carries a label from this judge.
+
+    Deliberately not "has any label": a run killed part-way through judging one
+    game leaves it partly labelled, and treating that as done would silently
+    score every per-message metric on a truncated denominator. A partly-judged
+    game falls through to `ChatJudge.judge_game`, which skips the messages it
+    already ruled on and labels only the rest.
+    """
     from ..database.connection import get_async_session
     from ..database.operations import GameOperations
 
     async with get_async_session() as session:
         labels = await GameOperations.get_chat_labels_for_game(session, game_id)
-    return bool(labels)
+        messages = await GameOperations.get_chat_messages_for_game(session, game_id)
+
+    labelled = {row.message_id for row in labels if row.judge_model == judge_model}
+    return bool(messages) and labelled >= {message.id for message in messages}
 
 
 def _async_url(url: str | None) -> str | None:
@@ -399,15 +431,19 @@ def _result_to_json(result: GameResult) -> dict[str, Any]:
         "output_tokens": result.output_tokens,
         "aborted": result.aborted,
         "usage_by_player": {
-            player_id: {
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "cache_read_tokens": usage.cache_read_tokens,
-                "cache_write_tokens": usage.cache_write_tokens,
-            }
+            player_id: _usage_to_json(usage)
             for player_id, usage in result.usage_by_player.items()
         },
         "error": result.error,
+    }
+
+
+def _usage_to_json(usage: TokenUsage) -> dict[str, int]:
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cache_read_tokens": usage.cache_read_tokens,
+        "cache_write_tokens": usage.cache_write_tokens,
     }
 
 

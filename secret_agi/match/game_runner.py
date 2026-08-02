@@ -154,7 +154,11 @@ class GameRunner:
                 action, params = self.engine.random_valid_action(player_id, self._rng)
 
             self._record_usage(player)
-            await self._record_metrics(player, state.turn_number)
+            # The action about to be performed occupies the *next* turn: the
+            # engine increments the counter as it records it. Numbering the
+            # metric row the same way is what lets analysis join a decision to
+            # the action it produced, and so drop the actions of failed turns.
+            await self._record_metrics(player, state.turn_number + 1)
 
             result = await self.engine.perform_action(player_id, action, **params)
 
@@ -180,6 +184,10 @@ class GameRunner:
 
         Only LLM players have anything worth recording; a RandomPlayer's cost is
         zero by construction.
+
+        The row carries `provider_failure` so analysis can drop the turn: when a
+        provider never answered, the action in the transcript came from the
+        harness, and scoring it would attribute a random vote to the model.
         """
         if not isinstance(player, LLMPlayer):
             return
@@ -193,6 +201,7 @@ class GameRunner:
                 tokens_used=player.last_usage.total_tokens,
                 response_time_ms=player.last_latency_ms,
                 invalid_attempts=player.last_invalid_attempts,
+                provider_failure=player.last_provider_failure,
             )
 
     def _blocks_progress(self, player_id: str) -> bool:
